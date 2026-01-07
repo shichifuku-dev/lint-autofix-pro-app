@@ -38,7 +38,7 @@ const renderChangedFiles = (files: string[], maxFiles: number): string => {
   }
   const limited = files.slice(0, maxFiles);
   const overflow = files.length - limited.length;
-  const lines = limited.map((file) => `- \\`${file}\\``);
+  const lines = limited.map((file) => `- \`${file}\``);
   if (overflow > 0) {
     lines.push(`- …and ${overflow} more`);
   }
@@ -63,7 +63,7 @@ export const buildCommentBody = (details: CommentDetails): string => {
     "## Lint Autofix Pro",
     "",
     `${COMMENT_MARKER}`,
-    `Working directory: \\`${details.config.workingDirectory}\\``,
+    `Working directory: \`${details.config.workingDirectory}\``,
     "",
     "### What happened",
     `- Install dependencies: ${statusIcon(details.installStatus)}`,
