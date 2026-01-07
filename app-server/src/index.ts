@@ -1,7 +1,8 @@
 import "dotenv/config";
 import express from "express";
 import { App } from "@octokit/app";
-import { Webhooks } from "@octokit/webhooks";
+import { Octokit } from "@octokit/rest";
+import { Webhooks, type WebhookEventMap } from "@octokit/webhooks";
 import { prisma } from "./db.js";
 import { runPullRequestPipeline } from "./pipeline.js";
 import { buildCommentBody } from "./comment.js";
@@ -26,11 +27,16 @@ const webhooks = new Webhooks({
   secret: process.env.WEBHOOK_SECRET ?? ""
 });
 
-webhooks.on("installation", async ({ payload }) => {
+webhooks.on("installation", async (event) => {
+  const payload = event.payload as WebhookEventMap["installation"];
   const installationId = payload.installation?.id;
   if (!installationId) {
     return;
   }
+  const account = payload.installation?.account;
+  const accountLogin =
+    account && "login" in account ? account.login : account && "name" in account ? account.name ?? "unknown" : "unknown";
+  const accountType = account && "type" in account ? account.type : "Organization";
   if (payload.action === "deleted") {
     await prisma.repoConfig.deleteMany({
       where: { installationId }
@@ -45,35 +51,44 @@ webhooks.on("installation", async ({ payload }) => {
     await prisma.installation.upsert({
       where: { installationId },
       update: {
-        accountLogin: payload.installation.account?.login ?? "unknown",
-        accountType: payload.installation.account?.type ?? "Unknown"
+        accountLogin,
+        accountType
       },
       create: {
         installationId,
-        accountLogin: payload.installation.account?.login ?? "unknown",
-        accountType: payload.installation.account?.type ?? "Unknown"
+        accountLogin,
+        accountType
       }
     });
   }
 });
 
-webhooks.on("pull_request", async ({ payload }) => {
+webhooks.on("pull_request", async (event) => {
+  const payload = event.payload as WebhookEventMap["pull_request"];
   if (!payload.installation) {
     return;
   }
   if (!payload.pull_request) {
     return;
   }
-  if (!['opened', 'synchronize', 'reopened'].includes(payload.action)) {
+  if (!["opened", "synchronize", "reopened"].includes(payload.action)) {
     return;
   }
 
   const installationId = payload.installation.id;
-  const owner = payload.repository.owner.login;
-  const repo = payload.repository.name;
+  const owner = payload.repository?.owner?.login;
+  const repo = payload.repository?.name;
+  if (!owner || !repo) {
+    return;
+  }
   const pullRequest = payload.pull_request;
-  const token = await app.getInstallationAccessToken({ installationId });
-  const octokit = await app.getInstallationOctokit(installationId);
+  if (!pullRequest.head.repo || !pullRequest.base.repo) {
+    return;
+  }
+  const appOctokit = await app.getInstallationOctokit(installationId);
+  const tokenResponse = await appOctokit.apps.createInstallationAccessToken({ installation_id: installationId });
+  const token = tokenResponse.data.token;
+  const octokit = new Octokit({ auth: token });
 
   try {
     const result = await runPullRequestPipeline({

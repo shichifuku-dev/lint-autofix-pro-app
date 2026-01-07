@@ -3,7 +3,7 @@ import path from "node:path";
 import os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
-import { loadRepoConfig, type RepoConfig } from "./config.js";
+import { getDefaultConfig, loadRepoConfig, type RepoConfig } from "./config.js";
 import type { ToolStatus } from "./comment.js";
 
 const execFileAsync = promisify(execFile);
@@ -109,7 +109,7 @@ const limitDiff = (diff: string): { diff: string; truncated: boolean } => {
 export const runPullRequestPipeline = async (context: PullRequestContext): Promise<PipelineResult> => {
   const notes: string[] = [];
   const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "lint-autofix-pro-"));
-  let config: RepoConfig | null = null;
+  let config: RepoConfig = getDefaultConfig();
 
   const cleanup = async () => {
     await fs.rm(tempDir, { recursive: true, force: true });
