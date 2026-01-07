@@ -1,0 +1,31 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Installation {
+  id              Int      @id @default(autoincrement())
+  installationId  Int      @unique
+  accountLogin    String
+  accountType     String
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+  repoConfigs     RepoConfig[]
+}
+
+model RepoConfig {
+  id             Int      @id @default(autoincrement())
+  installationId Int
+  repoFullName   String
+  configJson     String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  installation   Installation @relation(fields: [installationId], references: [installationId])
+
+  @@unique([installationId, repoFullName])
+}

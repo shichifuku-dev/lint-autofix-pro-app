@@ -1,0 +1,7 @@
+node_modules
+.env
+app-server/node_modules
+app-server/.env
+app-server/dev.db
+app-server/prisma/dev.db
+app-server/dist
