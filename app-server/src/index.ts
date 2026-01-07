@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { App } from "@octokit/app";
 import { Octokit } from "@octokit/rest";
-import { Webhooks, type WebhookEventMap } from "@octokit/webhooks";
+import { Webhooks } from "@octokit/webhooks";
 import { prisma } from "./db.js";
 import { runPullRequestPipeline } from "./pipeline.js";
 import { buildCommentBody } from "./comment.js";
@@ -28,15 +28,18 @@ const webhooks = new Webhooks({
 });
 
 webhooks.on("installation", async (event) => {
-  const payload = event.payload as WebhookEventMap["installation"];
+  const payload = event.payload as {
+    action: "created" | "deleted";
+    installation?: { id: number; account?: Record<string, unknown> | null };
+  };
   const installationId = payload.installation?.id;
   if (!installationId) {
     return;
   }
   const account = payload.installation?.account;
   const accountLogin =
-    account && "login" in account ? account.login : account && "name" in account ? account.name ?? "unknown" : "unknown";
-  const accountType = account && "type" in account ? account.type : "Organization";
+    account && "login" in account ? (account.login as string) : account && "name" in account ? (account.name as string) ?? "unknown" : "unknown";
+  const accountType = account && "type" in account ? (account.type as string) : "Organization";
   if (payload.action === "deleted") {
     await prisma.repoConfig.deleteMany({
       where: { installationId }
@@ -64,7 +67,16 @@ webhooks.on("installation", async (event) => {
 });
 
 webhooks.on("pull_request", async (event) => {
-  const payload = event.payload as WebhookEventMap["pull_request"];
+  const payload = event.payload as {
+    action: "opened" | "synchronize" | "reopened";
+    installation?: { id: number };
+    repository?: { name?: string; owner?: { login?: string }; full_name?: string };
+    pull_request?: {
+      number: number;
+      head: { sha: string; ref: string; repo: { full_name: string } | null };
+      base: { repo: { full_name: string } | null };
+    };
+  };
   if (!payload.installation) {
     return;
   }
@@ -86,8 +98,10 @@ webhooks.on("pull_request", async (event) => {
     return;
   }
   const appOctokit = await app.getInstallationOctokit(installationId);
-  const tokenResponse = await appOctokit.apps.createInstallationAccessToken({ installation_id: installationId });
-  const token = tokenResponse.data.token;
+  const tokenResponse = await appOctokit.request("POST /app/installations/{installation_id}/access_tokens", {
+    installation_id: installationId
+  });
+  const token = tokenResponse.data.token as string;
   const octokit = new Octokit({ auth: token });
 
   try {
