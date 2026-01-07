@@ -90,6 +90,7 @@ webhooks.on("pull_request", async (event) => {
   const installationId = payload.installation.id;
   const owner = payload.repository?.owner?.login;
   const repo = payload.repository?.name;
+  const repoFullName = payload.repository?.full_name;
   if (!owner || !repo) {
     return;
   }
@@ -116,11 +117,12 @@ webhooks.on("pull_request", async (event) => {
       installationToken: token
     });
 
+    const resolvedRepoFullName = repoFullName ?? `${owner}/${repo}`;
     await prisma.repoConfig.upsert({
       where: {
         installationId_repoFullName: {
           installationId,
-          repoFullName: payload.repository.full_name
+          repoFullName: resolvedRepoFullName
         }
       },
       update: {
@@ -128,7 +130,7 @@ webhooks.on("pull_request", async (event) => {
       },
       create: {
         installationId,
-        repoFullName: payload.repository.full_name,
+        repoFullName: resolvedRepoFullName,
         configJson: configToJson(result.config)
       }
     });
