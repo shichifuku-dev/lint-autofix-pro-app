@@ -240,18 +240,36 @@ server.post("/webhooks", express.raw({ type: "application/json" }), async (req, 
     return;
   }
 
+  const payload = req.body.toString("utf8");
+
   try {
-    await webhooks.verifyAndReceive({
-      id,
-      name,
-      payload: req.body.toString("utf8"),
-      signature
-    });
-    res.status(202).send("Accepted");
+    webhooks.verify(payload, signature);
   } catch (error) {
-    console.error("Webhook error", error);
-    res.status(400).send("Webhook verification failed");
+    const statusCode = error instanceof Error && error.name === "WebhookVerificationError" ? 401 : 400;
+    console.error("Webhook verification error", error);
+    res.status(statusCode).send("Webhook verification failed");
+    return;
   }
+
+  res.status(200).send("OK");
+
+  let parsedPayload: unknown;
+  try {
+    parsedPayload = JSON.parse(payload);
+  } catch (error) {
+    console.error("Webhook payload parse error", error);
+    return;
+  }
+
+  void webhooks
+    .receive({
+      id,
+      name: name as any,
+      payload: parsedPayload as any
+    } as any)
+    .catch((error) => {
+      console.error("Webhook handler error", error);
+    });
 });
 
 const port = Number(process.env.PORT ?? 3000);

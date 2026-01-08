@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: lint-autofix-pro-app
+    env: node
+    rootDir: app-server
+    plan: starter
+    buildCommand: npm install && npm run prisma:generate && npm run build
+    startCommand: npm run start
+    disk:
+      name: lint-autofix-pro-data
+      mountPath: /var/data
+      sizeGB: 1
+    envVars:
+      - key: APP_ID
+        sync: false
+      - key: PRIVATE_KEY
+        sync: false
+      - key: WEBHOOK_SECRET
+        sync: false
+      - key: ADMIN_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        value: file:/var/data/app.db
+      - key: NODE_ENV
+        value: production
