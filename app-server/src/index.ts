@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { App } from "@octokit/app";
 import { Octokit } from "@octokit/rest";
-import { WebhookVerificationError, Webhooks } from "@octokit/webhooks";
+import { Webhooks } from "@octokit/webhooks";
 import { prisma } from "./db.js";
 import { runPullRequestPipeline } from "./pipeline.js";
 import { buildCommentBody } from "./comment.js";
@@ -243,14 +243,9 @@ server.post("/webhooks", express.raw({ type: "application/json" }), async (req, 
   const payload = req.body.toString("utf8");
 
   try {
-    await webhooks.verify({
-      id,
-      name,
-      payload,
-      signature
-    });
+    webhooks.verify(payload, signature);
   } catch (error) {
-    const statusCode = error instanceof WebhookVerificationError ? 401 : 400;
+    const statusCode = error instanceof Error && error.name === "WebhookVerificationError" ? 401 : 400;
     console.error("Webhook verification error", error);
     res.status(statusCode).send("Webhook verification failed");
     return;
@@ -269,9 +264,9 @@ server.post("/webhooks", express.raw({ type: "application/json" }), async (req, 
   void webhooks
     .receive({
       id,
-      name,
-      payload: parsedPayload
-    })
+      name: name as any,
+      payload: parsedPayload as any
+    } as any)
     .catch((error) => {
       console.error("Webhook handler error", error);
     });
