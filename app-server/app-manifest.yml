@@ -1,0 +1,17 @@
+name: Lint Autofix Pro
+url: https://example.com
+hook_attributes:
+  url: https://example.com/webhooks
+  active: true
+  secret: changeme
+redirect_url: https://example.com
+callback_urls:
+  - https://example.com
+public: false
+permissions:
+  pull_requests: write
+  issues: write
+  contents: read
+events:
+  - pull_request
+  - installation
