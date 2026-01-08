@@ -1,4 +1,4 @@
-name: CI
+name: ci / build-test
 
 on:
   push:
@@ -7,20 +7,26 @@ on:
 
 jobs:
   build:
+    name: ci / build-test
     runs-on: ubuntu-latest
     defaults:
       run:
         working-directory: app-server
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-node@v4
         with:
           node-version: 20
+
       - name: Install dependencies
         run: npm install
+
       - name: Prisma generate
         run: npm run prisma:generate
+
       - name: Build
         run: npm run build
+
       - name: Test
         run: npm run test
