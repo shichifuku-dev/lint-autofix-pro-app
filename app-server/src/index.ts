@@ -2,7 +2,7 @@ import "dotenv/config";
 import express from "express";
 import { App } from "@octokit/app";
 import { Octokit } from "@octokit/rest";
-import { Webhooks } from "@octokit/webhooks";
+import { WebhookVerificationError, Webhooks } from "@octokit/webhooks";
 import { prisma } from "./db.js";
 import { runPullRequestPipeline } from "./pipeline.js";
 import { buildCommentBody } from "./comment.js";
@@ -240,18 +240,41 @@ server.post("/webhooks", express.raw({ type: "application/json" }), async (req, 
     return;
   }
 
+  const payload = req.body.toString("utf8");
+
   try {
-    await webhooks.verifyAndReceive({
+    await webhooks.verify({
       id,
       name,
-      payload: req.body.toString("utf8"),
+      payload,
       signature
     });
-    res.status(202).send("Accepted");
   } catch (error) {
-    console.error("Webhook error", error);
-    res.status(400).send("Webhook verification failed");
+    const statusCode = error instanceof WebhookVerificationError ? 401 : 400;
+    console.error("Webhook verification error", error);
+    res.status(statusCode).send("Webhook verification failed");
+    return;
   }
+
+  res.status(200).send("OK");
+
+  let parsedPayload: unknown;
+  try {
+    parsedPayload = JSON.parse(payload);
+  } catch (error) {
+    console.error("Webhook payload parse error", error);
+    return;
+  }
+
+  void webhooks
+    .receive({
+      id,
+      name,
+      payload: parsedPayload
+    })
+    .catch((error) => {
+      console.error("Webhook handler error", error);
+    });
 });
 
 const port = Number(process.env.PORT ?? 3000);

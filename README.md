@@ -16,4 +16,7 @@ npm run prisma:migrate
 npm run dev
 ```
 
+## Deployment
+Docker and non-Docker deployment steps (including environment variables, Prisma migrations, and Render template) live in `app-server/README.md`.
+
 See `app-server/README.md` for setup details and `docs/README.md` for documentation.
