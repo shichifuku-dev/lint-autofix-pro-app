@@ -1,5 +1,11 @@
 FROM node:20-bullseye-slim AS deps
 WORKDIR /app
+
+# Install git for PR pipeline operations (git init/fetch/checkout)
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends git ca-certificates openssh-client \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY package.json package-lock.json ./
 RUN npm ci
 
@@ -14,7 +20,7 @@ FROM node:20-bullseye-slim AS runner
 WORKDIR /app
 ENV NODE_ENV=production
 
-# Required for PR processing (git init/fetch/checkout inside pipeline)
+# git is needed at runtime too (pipeline runs inside this container)
 RUN apt-get update \
   && apt-get install -y --no-install-recommends git ca-certificates openssh-client \
   && rm -rf /var/lib/apt/lists/*
