@@ -46,8 +46,8 @@ No configuration is generated or modified automatically.
 
 ## Pull Request Status Checks
 
-The app reports its result as a status check on the pull request.
-Even when no fixes are applied, it reports required checks `CI/check` and `CI/autofix` as success to avoid blocking merges.
+The app reports its result as both GitHub check runs and commit statuses on the pull request.
+Even when no fixes are applied, it reports required contexts `CI/check` and `CI/autofix` as success to avoid blocking merges.
 
 Typical outcomes include:
 - Success (fixes applied or no issues found)

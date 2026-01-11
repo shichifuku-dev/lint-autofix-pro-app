@@ -4,7 +4,7 @@ const CHECK_NAMES = ["CI/check", "CI/autofix"] as const;
 
 type CheckName = (typeof CHECK_NAMES)[number];
 
-type CheckRunIds = Record<CheckName, number>;
+export type CheckRunIds = Record<CheckName, number>;
 
 type CheckOutput = {
   title: string;
