@@ -1,23 +1,33 @@
 # Lint Autofix Pro
 
-Automatically fixes formatting issues in pull requests using Prettier and ESLint.
+Lint Autofix Pro is a GitHub App that automatically runs Prettier and ESLint on pull requests and **always reports required CI checks**, even when no fixes are needed.
 
-This GitHub App runs on pull requests, detects common formatting problems, and applies safe, automatic fixes when possible.  
-When fixes cannot be applied, it reports the results clearly in the pull request conversation.
+This prevents branch protection rules from getting stuck on  
+“Expected — Waiting for status to be reported”.
+
+---
+
+## Overview
+
+Lint Autofix Pro runs on pull requests, detects common formatting issues, and applies safe, automatic fixes when possible.
+
+When fixes cannot be applied, it reports the results clearly in the pull request conversation while still completing all required status checks.
+
+The app never modifies the default branch directly.  
+All actions are scoped strictly to the pull request branch.
 
 ---
 
 ## How It Works
 
-1. A pull request is opened or updated.
+1. A pull request is opened, updated, or marked ready for review.
 2. The app checks the repository for supported tools (Prettier / ESLint).
 3. If formatting issues are detected:
    - Fixable issues are automatically committed to the pull request.
    - Non-fixable issues are reported via a pull request comment.
-4. If required tools are not configured, the app skips execution safely.
-
-The app never modifies the default branch directly.  
-All changes are applied only within the pull request branch.
+4. If required tools are not configured:
+   - Execution is safely skipped.
+   - Required status checks are still reported as completed.
 
 ---
 
@@ -27,34 +37,45 @@ All changes are applied only within the pull request branch.
 - **ESLint**
 
 The app uses the repository’s existing configuration files.  
-No configuration is generated or modified automatically.
+No configuration files are created, modified, or inferred automatically.
 
 ---
 
 ## Autofix Behavior
 
-- If formatting issues can be safely fixed:
-  - A commit is added to the pull request with the applied changes.
-- If issues are detected but cannot be fixed automatically:
-  - A comment is posted explaining what failed.
-- If Prettier or ESLint is not installed:
-  - The check is skipped.
+- **Fixable issues**
+  - A commit is added to the pull request with applied fixes.
+- **Detected but non-fixable issues**
+  - A comment explains what failed and why.
+- **Required tools not installed**
   - No commit is created.
-  - A status is reported indicating the skip.
+  - Execution is skipped safely.
+  - Status checks are still completed.
 
 ---
 
 ## Pull Request Status Checks
 
-The app reports its result as both GitHub check runs and commit statuses on the pull request.
-Even when no fixes are applied, it reports required contexts `CI/check` and `CI/autofix` as success to avoid blocking merges.
+The app always reports the following required contexts on pull requests:
 
-Typical outcomes include:
-- Success (fixes applied or no issues found)
-- Failure (issues detected but not fixable)
-- Skipped (required tools not configured)
+- `CI/check`
+- `CI/autofix`
 
-Repositories may choose to require this check before merging.
+These checks are reported as GitHub check runs and commit statuses.
+
+Even when:
+- No supported files are changed
+- No package.json is found
+- No fixes are applied
+
+Both required checks are completed to prevent merges from being blocked by missing statuses.
+
+Typical outcomes:
+- **Success**: fixes applied or no issues found
+- **Failure**: issues detected but not fixable
+- **Skipped**: required tools not configured
+
+Repositories may choose to require these checks via branch protection rules.
 
 ---
 
@@ -65,17 +86,17 @@ Repositories may choose to require this check before merging.
 - No file changes outside the pull request scope
 - No configuration files are created or altered
 
-All actions are deterministic and traceable via pull request commits and comments.
+All actions are deterministic and traceable through pull request commits, comments, and check output.
 
 ---
 
 ## Permissions
 
-The app requires the minimum permissions necessary to:
+The app requests only the minimum permissions required to:
 - Read repository contents
 - Create commits on pull request branches
 - Post comments on pull requests
-- Report status checks
+- Report check runs and commit statuses
 
 ---
 
@@ -83,12 +104,12 @@ The app requires the minimum permissions necessary to:
 
 Billing and plan details are managed through GitHub Marketplace.
 
-Please refer to the Marketplace listing for the latest pricing and trial information.
+Please refer to the Marketplace listing for the latest pricing and plan information.
 
 ---
 
 ## Support
 
-If you encounter unexpected behavior, please open an issue with:
+If you encounter unexpected behavior, please open an issue including:
 - A link to the pull request
-- The reported status check output
+- The reported check output
