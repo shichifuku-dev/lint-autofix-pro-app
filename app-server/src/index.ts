@@ -9,7 +9,17 @@ import { runPullRequestPipeline } from "./pipeline.js";
 import { buildCommentBody } from "./comment.js";
 import { upsertIssueComment } from "./comments.js";
 import { configToJson, getDefaultConfig } from "./config.js";
-import { buildFailureOutput, buildSuccessOutput, completeCheckRuns, createCheckRuns } from "./checks.js";
+import {
+  reportCheckCompleteFailure,
+  reportCheckCompleteSuccess,
+  reportCheckStart
+} from "./checks.js";
+
+const getPrHeadSha = (payload: {
+  pull_request?: {
+    head?: { sha?: string };
+  };
+}): string | null => payload.pull_request?.head?.sha ?? null;
 
 const requiredEnv = ["APP_ID", "PRIVATE_KEY", "WEBHOOK_SECRET"] as const;
 for (const key of requiredEnv) {
@@ -70,7 +80,7 @@ webhooks.on("installation", async (event) => {
 
 webhooks.on("pull_request", async (event) => {
   const payload = event.payload as {
-    action: "opened" | "synchronize" | "reopened";
+    action: "opened" | "synchronize" | "reopened" | "ready_for_review";
     installation?: { id: number };
     repository?: { name?: string; owner?: { login?: string; type?: string }; full_name?: string };
     pull_request?: {
@@ -87,7 +97,7 @@ webhooks.on("pull_request", async (event) => {
     console.warn("Missing pull_request in payload", { installationId: payload.installation.id });
     return;
   }
-  if (!["opened", "synchronize", "reopened"].includes(payload.action)) {
+  if (!["opened", "synchronize", "reopened", "ready_for_review"].includes(payload.action)) {
     return;
   }
 
@@ -103,17 +113,23 @@ webhooks.on("pull_request", async (event) => {
   if (!pullRequest.head.repo || !pullRequest.base.repo) {
     return;
   }
-  const appOctokit = await app.getInstallationOctokit(installationId);
-  const tokenResponse = await appOctokit.request("POST /app/installations/{installation_id}/access_tokens", {
-    installation_id: installationId
-  });
-  const token = tokenResponse.data.token as string;
-  const octokit = new Octokit({ auth: token });
-  const headSha = pullRequest.head.sha;
-  let checkRunIds: Awaited<ReturnType<typeof createCheckRuns>> | null = null;
+  const headSha = getPrHeadSha(payload);
+  if (!headSha) {
+    console.warn("Missing pull request head SHA", { installationId });
+    return;
+  }
+  let checkRunIds: Awaited<ReturnType<typeof reportCheckStart>> | null = null;
+  let octokit: Octokit | null = null;
+  let token = "";
 
   try {
-    checkRunIds = await createCheckRuns({
+    const appOctokit = await app.getInstallationOctokit(installationId);
+    const tokenResponse = await appOctokit.request("POST /app/installations/{installation_id}/access_tokens", {
+      installation_id: installationId
+    });
+    token = tokenResponse.data.token as string;
+    octokit = new Octokit({ auth: token });
+    checkRunIds = await reportCheckStart({
       octokit,
       owner,
       repo,
@@ -195,50 +211,51 @@ webhooks.on("pull_request", async (event) => {
       body: commentBody
     });
 
-    await completeCheckRuns({
+    await reportCheckCompleteSuccess({
       octokit,
       owner,
       repo,
       headSha,
-      checkRunIds,
-      conclusion: "success",
-      output: buildSuccessOutput()
+      checkRunIds
     });
   } catch (error) {
     console.error("Processing error", error);
-    const config = getDefaultConfig();
-    const commentBody = buildCommentBody({
-      config,
-      installStatus: "failed",
-      prettierStatus: "skipped",
-      eslintStatus: "skipped",
-      changedFiles: [],
-      diff: "",
-      diffTruncated: false,
-      notes: ["Lint Autofix Pro encountered an error while processing this pull request."],
-      autoCommit: { attempted: false, pushed: false }
-    });
-    try {
-      await upsertIssueComment({
+    if (octokit) {
+      const config = getDefaultConfig();
+      const commentBody = buildCommentBody({
+        config,
+        installStatus: "failed",
+        prettierStatus: "skipped",
+        eslintStatus: "skipped",
+        changedFiles: [],
+        diff: "",
+        diffTruncated: false,
+        notes: ["Lint Autofix Pro encountered an error while processing this pull request."],
+        autoCommit: { attempted: false, pushed: false }
+      });
+      try {
+        await upsertIssueComment({
+          octokit,
+          owner,
+          repo,
+          issueNumber: pullRequest.number,
+          body: commentBody
+        });
+      } catch (commentError) {
+        console.error("Failed to upsert error comment", commentError);
+      }
+    }
+
+    if (octokit) {
+      await reportCheckCompleteFailure({
         octokit,
         owner,
         repo,
-        issueNumber: pullRequest.number,
-        body: commentBody
+        headSha,
+        checkRunIds,
+        error
       });
-    } catch (commentError) {
-      console.error("Failed to upsert error comment", commentError);
     }
-
-    await completeCheckRuns({
-      octokit,
-      owner,
-      repo,
-      headSha,
-      checkRunIds,
-      conclusion: "failure",
-      output: buildFailureOutput(error)
-    });
   }
 });
 

@@ -56,6 +56,24 @@ export const createCheckRuns = async ({
   return Object.fromEntries(runs) as CheckRunIds;
 };
 
+export const reportCheckStart = async ({
+  octokit,
+  owner,
+  repo,
+  headSha
+}: {
+  octokit: Octokit;
+  owner: string;
+  repo: string;
+  headSha: string;
+}): Promise<CheckRunIds> =>
+  createCheckRuns({
+    octokit,
+    owner,
+    repo,
+    headSha
+  });
+
 export const completeCheckRuns = async ({
   octokit,
   owner,
@@ -112,3 +130,51 @@ export const buildSuccessOutput = (): CheckOutput => buildOutput("Lint Autofix P
 
 export const buildFailureOutput = (error: unknown): CheckOutput =>
   buildOutput("Lint Autofix Pro encountered an error.", formatErrorDetails(error));
+
+export const reportCheckCompleteSuccess = async ({
+  octokit,
+  owner,
+  repo,
+  headSha,
+  checkRunIds
+}: {
+  octokit: Octokit;
+  owner: string;
+  repo: string;
+  headSha: string;
+  checkRunIds?: CheckRunIds | null;
+}): Promise<void> =>
+  completeCheckRuns({
+    octokit,
+    owner,
+    repo,
+    headSha,
+    checkRunIds,
+    conclusion: "success",
+    output: buildSuccessOutput()
+  });
+
+export const reportCheckCompleteFailure = async ({
+  octokit,
+  owner,
+  repo,
+  headSha,
+  checkRunIds,
+  error
+}: {
+  octokit: Octokit;
+  owner: string;
+  repo: string;
+  headSha: string;
+  checkRunIds?: CheckRunIds | null;
+  error: unknown;
+}): Promise<void> =>
+  completeCheckRuns({
+    octokit,
+    owner,
+    repo,
+    headSha,
+    checkRunIds,
+    conclusion: "failure",
+    output: buildFailureOutput(error)
+  });
