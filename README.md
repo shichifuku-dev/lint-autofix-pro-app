@@ -1,22 +1,38 @@
 # Lint Autofix Pro
 
-Automatically fixes formatting issues in pull requests using Prettier and ESLint.
+Automatically fixes formatting issues in pull requests using **Prettier** and **ESLint**,  
+and **always reports required CI checks** to prevent blocked merges.
 
-This GitHub App runs on pull requests, detects common formatting problems, and applies safe, automatic fixes when possible.  
-When fixes cannot be applied, it reports the results clearly in the pull request conversation.
+Lint Autofix Pro is a GitHub App designed to keep pull requests clean, consistent, and mergeable  
+without manual formatting work or fragile CI setups.
+
+---
+
+## What It Does
+
+Lint Autofix Pro runs on pull requests and:
+
+- Detects formatting issues using the repository’s existing Prettier and ESLint configuration
+- Applies safe, automatic fixes when possible
+- Reports clear results directly on the pull request
+- **Always reports required CI checks (`CI/check`, `CI/autofix`)**, even when no fixes are applied
+
+This prevents pull requests from being blocked by missing or stuck status checks.
 
 ---
 
 ## How It Works
 
-1. A pull request is opened or updated.
-2. The app checks the repository for supported tools (Prettier / ESLint).
+1. A pull request is opened or updated
+2. The app checks the repository for supported tools (Prettier / ESLint)
 3. If formatting issues are detected:
-   - Fixable issues are automatically committed to the pull request.
-   - Non-fixable issues are reported via a pull request comment.
-4. If required tools are not configured, the app skips execution safely.
+   - Fixable issues are automatically committed to the pull request branch
+   - Non-fixable issues are reported via a pull request comment
+4. If required tools are not configured:
+   - Execution is safely skipped
+   - Status checks are still reported
 
-The app never modifies the default branch directly.  
+The app **never modifies the default branch directly**.  
 All changes are applied only within the pull request branch.
 
 ---
@@ -26,35 +42,43 @@ All changes are applied only within the pull request branch.
 - **Prettier**
 - **ESLint**
 
-The app uses the repository’s existing configuration files.  
-No configuration is generated or modified automatically.
+Lint Autofix Pro uses your existing configuration files.  
+No configuration files are generated, modified, or inferred automatically.
 
 ---
 
 ## Autofix Behavior
 
-- If formatting issues can be safely fixed:
-  - A commit is added to the pull request with the applied changes.
-- If issues are detected but cannot be fixed automatically:
-  - A comment is posted explaining what failed.
-- If Prettier or ESLint is not installed:
-  - The check is skipped.
-  - No commit is created.
-  - A status is reported indicating the skip.
+- **Fixable issues**
+  - A commit is added to the pull request with the applied changes
+- **Detected but non-fixable issues**
+  - A comment is posted explaining what failed
+- **Prettier / ESLint not installed**
+  - Execution is skipped
+  - No commit is created
+  - Required CI checks are reported as completed
 
 ---
 
 ## Pull Request Status Checks
 
-The app reports its result as both GitHub check runs and commit statuses on the pull request.
-Even when no fixes are applied, it reports required contexts `CI/check` and `CI/autofix` as success to avoid blocking merges.
+The app reports results as both **GitHub check runs** and **commit statuses**.
 
-Typical outcomes include:
-- Success (fixes applied or no issues found)
-- Failure (issues detected but not fixable)
-- Skipped (required tools not configured)
+Required contexts reported:
 
-Repositories may choose to require this check before merging.
+- `CI/check`
+- `CI/autofix`
+
+Even when no fixes are applied, these checks are reported as **success**  
+to avoid blocking merges due to missing or pending CI statuses.
+
+Typical outcomes:
+
+- **Success** — fixes applied or no issues found
+- **Failure** — issues detected but not automatically fixable
+- **Skipped** — required tools not configured
+
+Repositories may choose to require these checks before merging.
 
 ---
 
@@ -71,7 +95,8 @@ All actions are deterministic and traceable via pull request commits and comment
 
 ## Permissions
 
-The app requires the minimum permissions necessary to:
+Lint Autofix Pro requests the minimum permissions required to:
+
 - Read repository contents
 - Create commits on pull request branches
 - Post comments on pull requests
@@ -79,16 +104,34 @@ The app requires the minimum permissions necessary to:
 
 ---
 
+## Disclaimer (Important)
+
+This tool does **not** guarantee mergeability, correctness, availability, or production safety.  
+It provides **best-effort CI reporting and automated formatting only**.
+
+Lint Autofix Pro is **not responsible** for:
+
+- Production outages
+- Lost revenue
+- Data loss
+- Any direct or indirect damages
+
+Use at your own discretion, consistent with GitHub Marketplace terms.
+
+---
+
 ## Billing
 
-Billing and plan details are managed through GitHub Marketplace.
+Billing and plan details are managed through **GitHub Marketplace**.
 
-Please refer to the Marketplace listing for the latest pricing and trial information.
+Please refer to the Marketplace listing for current pricing and plan information.  
+Private repositories require a paid plan.
 
 ---
 
 ## Support
 
-If you encounter unexpected behavior, please open an issue with:
+If you encounter unexpected behavior, please open an issue including:
+
 - A link to the pull request
 - The reported status check output
