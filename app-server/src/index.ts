@@ -3,6 +3,7 @@ import express from "express";
 import { App } from "@octokit/app";
 import { Octokit } from "@octokit/rest";
 import { Webhooks } from "@octokit/webhooks";
+import { Prisma } from "@prisma/client";
 import { prisma } from "./db.js";
 import { runPullRequestPipeline } from "./pipeline.js";
 import { buildCommentBody } from "./comment.js";
@@ -70,7 +71,7 @@ webhooks.on("pull_request", async (event) => {
   const payload = event.payload as {
     action: "opened" | "synchronize" | "reopened";
     installation?: { id: number };
-    repository?: { name?: string; owner?: { login?: string }; full_name?: string };
+    repository?: { name?: string; owner?: { login?: string; type?: string }; full_name?: string };
     pull_request?: {
       number: number;
       head: { sha: string; ref: string; repo: { full_name: string } | null };
@@ -78,9 +79,11 @@ webhooks.on("pull_request", async (event) => {
     };
   };
   if (!payload.installation) {
+    console.warn("Missing installation in pull_request payload");
     return;
   }
   if (!payload.pull_request) {
+    console.warn("Missing pull_request in payload", { installationId: payload.installation.id });
     return;
   }
   if (!["opened", "synchronize", "reopened"].includes(payload.action)) {
@@ -92,6 +95,7 @@ webhooks.on("pull_request", async (event) => {
   const repo = payload.repository?.name;
   const repoFullName = payload.repository?.full_name;
   if (!owner || !repo) {
+    console.warn("Missing repository info in pull_request payload", { installationId });
     return;
   }
   const pullRequest = payload.pull_request;
@@ -118,22 +122,49 @@ webhooks.on("pull_request", async (event) => {
     });
 
     const resolvedRepoFullName = repoFullName ?? `${owner}/${repo}`;
-    await prisma.repoConfig.upsert({
-      where: {
-        installationId_repoFullName: {
+    const accountLogin = owner;
+    const accountType = payload.repository?.owner?.type ?? "Organization";
+    try {
+      await prisma.$transaction(async (tx) => {
+        await tx.installation.upsert({
+          where: { installationId },
+          update: {
+            accountLogin,
+            accountType
+          },
+          create: {
+            installationId,
+            accountLogin,
+            accountType
+          }
+        });
+        await tx.repoConfig.upsert({
+          where: {
+            installationId_repoFullName: {
+              installationId,
+              repoFullName: resolvedRepoFullName
+            }
+          },
+          update: {
+            configJson: configToJson(result.config)
+          },
+          create: {
+            installationId,
+            repoFullName: resolvedRepoFullName,
+            configJson: configToJson(result.config)
+          }
+        });
+      });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
+        console.warn("Skipping repoConfig upsert due to missing FK parent", {
           installationId,
           repoFullName: resolvedRepoFullName
-        }
-      },
-      update: {
-        configJson: configToJson(result.config)
-      },
-      create: {
-        installationId,
-        repoFullName: resolvedRepoFullName,
-        configJson: configToJson(result.config)
+        });
+      } else {
+        throw error;
       }
-    });
+    }
 
     const commentBody = buildCommentBody({
       config: result.config,
