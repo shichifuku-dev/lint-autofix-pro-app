@@ -55,7 +55,11 @@ const runCommand = async (
   } catch (error) {
     if (error instanceof Error && "stdout" in error && "stderr" in error) {
       const err = error as NodeJS.ErrnoException & { stdout: string; stderr: string; code?: number };
-      return { code: typeof err.code === "number" ? err.code : 1, stdout: err.stdout ?? "", stderr: err.stderr ?? "" };
+      return {
+        code: typeof err.code === "number" ? err.code : 1,
+        stdout: err.stdout ?? "",
+        stderr: err.stderr ?? String(error)
+      };
     }
     return { code: 1, stdout: "", stderr: String(error) };
   }
@@ -68,7 +72,17 @@ const runCommandOrThrow = async (
 ): Promise<void> => {
   const result = await runCommand(command, args, options);
   if (result.code !== 0) {
-    throw new Error(`${command} ${args.join(" ")} failed: ${result.stderr || result.stdout}`);
+    const msg = [
+      `Command failed`,
+      `cmd: ${command} ${args.join(" ")}`,
+      `cwd: ${options.cwd}`,
+      `code: ${result.code}`,
+      result.stderr ? `stderr:\n${result.stderr}` : "",
+      result.stdout ? `stdout:\n${result.stdout}` : ""
+    ]
+      .filter(Boolean)
+      .join("\n");
+    throw new Error(msg);
   }
 };
 
@@ -95,7 +109,7 @@ const detectMissingTool = (output: string): boolean => {
 };
 
 const sanitizeRelativePath = (repoRoot: string, workingDir: string): string => {
-  const relative = path.relative(repoRoot, workingDir).replaceAll("\\\\", "/");
+  const relative = path.relative(repoRoot, workingDir).replaceAll("\\", "/");
   return relative.length === 0 ? "." : relative;
 };
 
@@ -120,6 +134,9 @@ export const runPullRequestPipeline = async (context: PullRequestContext): Promi
     await fs.mkdir(repoDir);
 
     const remoteUrl = `https://x-access-token:${context.installationToken}@github.com/${context.owner}/${context.repo}.git`;
+
+    // Ensure git exists and print version (helps debug container issues)
+    await runCommandOrThrow("git", ["--version"], { cwd: repoDir });
 
     await runCommandOrThrow("git", ["init"], { cwd: repoDir });
     await runCommandOrThrow("git", ["remote", "add", "origin", remoteUrl], { cwd: repoDir });
