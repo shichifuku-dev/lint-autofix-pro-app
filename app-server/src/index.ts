@@ -9,6 +9,7 @@ import { runPullRequestPipeline } from "./pipeline.js";
 import { buildCommentBody } from "./comment.js";
 import { upsertIssueComment } from "./comments.js";
 import { configToJson, getDefaultConfig } from "./config.js";
+import { buildFailureOutput, buildSuccessOutput, completeCheckRuns, createCheckRuns } from "./checks.js";
 
 const requiredEnv = ["APP_ID", "PRIVATE_KEY", "WEBHOOK_SECRET"] as const;
 for (const key of requiredEnv) {
@@ -108,13 +109,21 @@ webhooks.on("pull_request", async (event) => {
   });
   const token = tokenResponse.data.token as string;
   const octokit = new Octokit({ auth: token });
+  const headSha = pullRequest.head.sha;
+  let checkRunIds: Awaited<ReturnType<typeof createCheckRuns>> | null = null;
 
   try {
+    checkRunIds = await createCheckRuns({
+      octokit,
+      owner,
+      repo,
+      headSha
+    });
     const result = await runPullRequestPipeline({
       owner,
       repo,
       number: pullRequest.number,
-      headSha: pullRequest.head.sha,
+      headSha,
       headRef: pullRequest.head.ref,
       headRepoFullName: pullRequest.head.repo.full_name,
       isFork: pullRequest.head.repo.full_name !== pullRequest.base.repo.full_name,
@@ -185,6 +194,16 @@ webhooks.on("pull_request", async (event) => {
       issueNumber: pullRequest.number,
       body: commentBody
     });
+
+    await completeCheckRuns({
+      octokit,
+      owner,
+      repo,
+      headSha,
+      checkRunIds,
+      conclusion: "success",
+      output: buildSuccessOutput()
+    });
   } catch (error) {
     console.error("Processing error", error);
     const config = getDefaultConfig();
@@ -199,12 +218,26 @@ webhooks.on("pull_request", async (event) => {
       notes: ["Lint Autofix Pro encountered an error while processing this pull request."],
       autoCommit: { attempted: false, pushed: false }
     });
-    await upsertIssueComment({
+    try {
+      await upsertIssueComment({
+        octokit,
+        owner,
+        repo,
+        issueNumber: pullRequest.number,
+        body: commentBody
+      });
+    } catch (commentError) {
+      console.error("Failed to upsert error comment", commentError);
+    }
+
+    await completeCheckRuns({
       octokit,
       owner,
       repo,
-      issueNumber: pullRequest.number,
-      body: commentBody
+      headSha,
+      checkRunIds,
+      conclusion: "failure",
+      output: buildFailureOutput(error)
     });
   }
 });
