@@ -129,6 +129,13 @@ Private repositories require a paid plan.
 
 ---
 
+## Webhook Usage
+
+> Note: Marketplace webhooks are configured for future paid plan features.  
+> The current Free plan does not rely on Marketplace webhooks for its operation.
+
+---
+
 ## Support
 
 If you encounter unexpected behavior, please open an issue including:
