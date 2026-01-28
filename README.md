@@ -1,4 +1,4 @@
-# Lint Autofix Pro
+# Lint Autofix Pro 
 
 Automatically fixes formatting issues in pull requests using **Prettier** and **ESLint**,  
 and **always reports required CI checks** to prevent blocked merges.
