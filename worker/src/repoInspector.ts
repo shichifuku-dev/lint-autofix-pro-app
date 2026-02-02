@@ -1,4 +1,3 @@
-import path from "node:path";
 import type { OctokitLike } from "../../shared/githubClient.js";
 
 const SUPPORTED_EXTENSIONS = new Set([".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".yml", ".css", ".md"]);
@@ -40,6 +39,11 @@ const isNotFoundError = (error: unknown): boolean => {
   return error.status === 404;
 };
 
+const decodeBase64 = (value: string): string => {
+  const normalized = value.replace(/\n/g, "");
+  return atob(normalized);
+};
+
 const getFileContent = async ({
   octokit,
   owner,
@@ -63,8 +67,11 @@ const getFileContent = async ({
     if (Array.isArray(response.data)) {
       return null;
     }
-    if ("content" in response.data && typeof response.data.content === "string") {
-      return Buffer.from(response.data.content, "base64").toString("utf8");
+    if (response.data && typeof response.data === "object" && "content" in response.data) {
+      const content = isRecord(response.data) ? response.data.content : undefined;
+      if (typeof content === "string") {
+        return decodeBase64(content);
+      }
     }
     return null;
   } catch (error) {
@@ -87,11 +94,15 @@ const fileExists = async (params: {
 };
 
 export const isSupportedFile = (filename: string): boolean => {
-  const base = path.basename(filename);
+  const base = filename.split("/").pop() ?? filename;
   if (README_REGEX.test(base)) {
     return false;
   }
-  const ext = path.extname(base).toLowerCase();
+  const dotIndex = base.lastIndexOf(".");
+  if (dotIndex === -1) {
+    return false;
+  }
+  const ext = base.slice(dotIndex).toLowerCase();
   return SUPPORTED_EXTENSIONS.has(ext);
 };
 

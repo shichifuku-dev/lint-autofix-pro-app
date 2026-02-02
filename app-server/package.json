@@ -6,8 +6,10 @@
   "scripts": {
     "dev": "tsx watch src/index.ts",
     "build": "tsc",
-    "start": "node dist/index.js",
+    "start": "node dist/app-server/src/index.js",
     "test": "vitest run",
+    "worker:dev": "wrangler dev --config ../worker/wrangler.toml",
+    "worker:deploy": "wrangler deploy --config ../worker/wrangler.toml",
     "prisma:generate": "prisma generate",
     "prisma:migrate": "prisma migrate dev"
   },

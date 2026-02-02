@@ -4,7 +4,7 @@
 Webhook requests are verified using the GitHub App webhook secret before any processing occurs.
 
 ## Secrets handling
-- The GitHub App private key is supplied via `PRIVATE_KEY` environment variable.
+- The GitHub App private key is supplied via `GITHUB_APP_PRIVATE_KEY` environment variable.
 - Webhook secrets and admin tokens are never logged.
 
 ## Least privilege
