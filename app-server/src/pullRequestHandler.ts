@@ -1,11 +1,5 @@
-import { App } from "@octokit/app";
-import { Octokit } from "@octokit/rest";
-import { createCheckReporter } from "./checkReporter.js";
+import type { OctokitLike } from "./githubClient.js";
 import { getPrHeadSha } from "./status.js";
-import { detectRepoTooling, isSupportedFile, listPullRequestFiles } from "./repoInspector.js";
-import { dispatchRunnerWorkflow } from "./runnerDispatch.js";
-import { getRunnerConfig } from "./runnerConfig.js";
-import { getPlan, planPolicy } from "./plan.js";
 
 type PullRequestPayload = {
   action: "opened" | "synchronize" | "reopened" | "ready_for_review";
@@ -20,30 +14,82 @@ type PullRequestPayload = {
 };
 
 type PullRequestHandlerDeps = {
-  app: App;
-  createOctokit: (token: string) => Octokit;
-  createCheckReporter?: typeof createCheckReporter;
-  listPullRequestFiles?: typeof listPullRequestFiles;
-  detectRepoTooling?: typeof detectRepoTooling;
-  dispatchRunnerWorkflow?: typeof dispatchRunnerWorkflow;
-  getRunnerConfig?: typeof getRunnerConfig;
-  getPlan?: typeof getPlan;
-  planPolicy?: typeof planPolicy;
+  getInstallationToken: (installationId: number) => Promise<string>;
+  createOctokit: (token: string) => OctokitLike;
+  createCheckReporter: (options: {
+    octokit: OctokitLike;
+    owner: string;
+    repo: string;
+    headSha: string;
+    targetUrl?: string;
+  }) => {
+    init: () => Promise<void>;
+    markInProgress: () => Promise<void>;
+    completeSuccess: (summary: string, text?: string) => Promise<void>;
+    completeFailure: (summary: string, text?: string) => Promise<void>;
+    usingCommitStatuses: () => boolean;
+  };
+  listPullRequestFiles: (params: {
+    octokit: OctokitLike;
+    owner: string;
+    repo: string;
+    pullNumber: number;
+  }) => Promise<string[]>;
+  detectRepoTooling: (params: {
+    octokit: OctokitLike;
+    owner: string;
+    repo: string;
+    headSha: string;
+  }) => Promise<{ hasEslint: boolean; hasPrettier: boolean }>;
+  isSupportedFile: (filename: string) => boolean;
+  dispatchRunnerWorkflow: (params: {
+    octokit: OctokitLike;
+    runnerConfig: {
+      owner: string;
+      repo: string;
+      workflow: string;
+      callbackToken: string;
+      callbackUrl: string;
+    };
+    payload: {
+      owner: string;
+      repo: string;
+      prNumber: number;
+      headSha: string;
+      baseSha: string;
+      ref: string;
+      installationId: number;
+      plan: string;
+      priority: number;
+      callbackUrl: string;
+      callbackToken: string;
+    };
+  }) => Promise<void>;
+  getRunnerConfig: () => {
+    owner: string;
+    repo: string;
+    workflow: string;
+    callbackToken: string;
+    callbackUrl: string;
+  };
+  getPlan: (installationId: number, repoFullName: string) => string;
+  planPolicy: (plan: string) => { priority: number };
 };
 
 const ALLOWED_ACTIONS = ["opened", "synchronize", "reopened", "ready_for_review"] as const;
 
 export const createPullRequestHandler =
   ({
-    app,
+    getInstallationToken,
     createOctokit,
-    createCheckReporter: createCheckReporterImpl = createCheckReporter,
-    listPullRequestFiles: listPullRequestFilesImpl = listPullRequestFiles,
-    detectRepoTooling: detectRepoToolingImpl = detectRepoTooling,
-    dispatchRunnerWorkflow: dispatchRunnerWorkflowImpl = dispatchRunnerWorkflow,
-    getRunnerConfig: getRunnerConfigImpl = getRunnerConfig,
-    getPlan: getPlanImpl = getPlan,
-    planPolicy: planPolicyImpl = planPolicy
+    createCheckReporter: createCheckReporterImpl,
+    listPullRequestFiles: listPullRequestFilesImpl,
+    detectRepoTooling: detectRepoToolingImpl,
+    isSupportedFile: isSupportedFileImpl,
+    dispatchRunnerWorkflow: dispatchRunnerWorkflowImpl,
+    getRunnerConfig: getRunnerConfigImpl,
+    getPlan: getPlanImpl,
+    planPolicy: planPolicyImpl
   }: PullRequestHandlerDeps) =>
   async (event: { payload: unknown }): Promise<void> => {
     const payload = event.payload as PullRequestPayload;
@@ -78,14 +124,10 @@ export const createPullRequestHandler =
     }
     const targetUrl = pullRequest.html_url;
 
-    let octokit: Octokit | null = null;
+    let octokit: OctokitLike | null = null;
 
     try {
-      const appOctokit = await app.getInstallationOctokit(installationId);
-      const tokenResponse = await appOctokit.request("POST /app/installations/{installation_id}/access_tokens", {
-        installation_id: installationId
-      });
-      const token = tokenResponse.data.token as string;
+      const token = await getInstallationToken(installationId);
       octokit = createOctokit(token);
 
       const reporter = createCheckReporterImpl({
@@ -103,7 +145,7 @@ export const createPullRequestHandler =
         repo,
         pullNumber: pullRequest.number
       });
-      const hasSupportedFiles = changedFiles.some((file) => isSupportedFile(file));
+      const hasSupportedFiles = changedFiles.some((file) => isSupportedFileImpl(file));
       if (!hasSupportedFiles) {
         await reporter.completeSuccess("Skipped: no supported files changed");
         return;

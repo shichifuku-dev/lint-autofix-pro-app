@@ -139,6 +139,31 @@ Private repositories require a paid plan.
 
 ---
 
+## Cloudflare Worker Deployment
+
+Webhook processing can be deployed to Cloudflare Workers without changing the GitHub App webhook URL.
+
+Required environment variables:
+
+- `GITHUB_APP_ID`
+- `GITHUB_WEBHOOK_SECRET`
+- `GITHUB_PRIVATE_KEY_B64` (base64-encoded PEM for the GitHub App private key)
+
+Optional runner configuration (defaults match the app server):
+
+- `RUNNER_OWNER`
+- `RUNNER_REPO`
+- `RUNNER_WORKFLOW`
+- `RUNNER_CALLBACK_TOKEN`
+- `PUBLIC_APP_URL`
+
+Use the worker scripts from the app server package:
+
+- `npm run worker:dev`
+- `npm run worker:deploy`
+
+---
+
 ## Support
 
 If you encounter unexpected behavior, please open an issue including:

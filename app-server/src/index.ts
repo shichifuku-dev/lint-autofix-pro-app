@@ -1,7 +1,6 @@
 import "dotenv/config";
 import express from "express";
 import { App } from "@octokit/app";
-import { Webhooks } from "@octokit/webhooks";
 import { prisma } from "./db.js";
 import { Octokit } from "@octokit/rest";
 import { createCheckReporter } from "./checkReporter.js";
@@ -9,9 +8,10 @@ import { ensureCheckRuns, updateCheckRun } from "./checks.js";
 import { getRunnerConfig } from "./runnerConfig.js";
 import { createPullRequestHandler } from "./pullRequestHandler.js";
 import { dispatchRunnerWorkflow } from "./runnerDispatch.js";
-import { detectRepoTooling, listPullRequestFiles } from "./repoInspector.js";
+import { detectRepoTooling, isSupportedFile, listPullRequestFiles } from "./repoInspector.js";
 import { getPlan, planPolicy } from "./plan.js";
 import { reportStatus } from "./status.js";
+import { handleInstallationEvent, handleWebhookEvent, verifyWebhookSignature } from "./webhookCore.js";
 
 const requiredEnv = ["APP_ID", "PRIVATE_KEY", "WEBHOOK_SECRET"] as const;
 for (const key of requiredEnv) {
@@ -27,63 +27,53 @@ const app = new App({
   privateKey
 });
 
-const webhooks = new Webhooks({
-  secret: process.env.WEBHOOK_SECRET ?? ""
+const pullRequestHandler = createPullRequestHandler({
+  getInstallationToken: async (installationId) => {
+    const appOctokit = await app.getInstallationOctokit(installationId);
+    const tokenResponse = await appOctokit.request("POST /app/installations/{installation_id}/access_tokens", {
+      installation_id: installationId
+    });
+    return tokenResponse.data.token as string;
+  },
+  createOctokit: (token) => new Octokit({ auth: token }),
+  createCheckReporter,
+  listPullRequestFiles,
+  detectRepoTooling,
+  isSupportedFile,
+  dispatchRunnerWorkflow,
+  getRunnerConfig,
+  getPlan,
+  planPolicy
 });
 
-webhooks.on("installation", async (event) => {
-  const payload = event.payload as {
-    action: "created" | "deleted";
-    installation?: { id: number; account?: Record<string, unknown> | null };
-  };
-  const installationId = payload.installation?.id;
-  if (!installationId) {
-    return;
-  }
-  const account = payload.installation?.account;
-  const accountLogin =
-    account && "login" in account ? (account.login as string) : account && "name" in account ? (account.name as string) ?? "unknown" : "unknown";
-  const accountType = account && "type" in account ? (account.type as string) : "Organization";
-  if (payload.action === "deleted") {
-    await prisma.repoConfig.deleteMany({
-      where: { installationId }
-    });
-    await prisma.installation.deleteMany({
-      where: { installationId }
-    });
-    return;
-  }
-
-  if (payload.action === "created") {
-    await prisma.installation.upsert({
-      where: { installationId },
-      update: {
-        accountLogin,
-        accountType
+const installationHandler = async (payload: { action: "created" | "deleted"; installation?: { id: number; account?: Record<string, unknown> | null } }) =>
+  handleInstallationEvent({
+    payload,
+    store: {
+      deleteInstallation: async (installationId) => {
+        await prisma.repoConfig.deleteMany({
+          where: { installationId }
+        });
+        await prisma.installation.deleteMany({
+          where: { installationId }
+        });
       },
-      create: {
-        installationId,
-        accountLogin,
-        accountType
+      upsertInstallation: async ({ installationId, accountLogin, accountType }) => {
+        await prisma.installation.upsert({
+          where: { installationId },
+          update: {
+            accountLogin,
+            accountType
+          },
+          create: {
+            installationId,
+            accountLogin,
+            accountType
+          }
+        });
       }
-    });
-  }
-});
-
-webhooks.on(
-  "pull_request",
-  createPullRequestHandler({
-    app,
-    createOctokit: (token) => new Octokit({ auth: token }),
-    createCheckReporter,
-    listPullRequestFiles,
-    detectRepoTooling,
-    dispatchRunnerWorkflow,
-    getRunnerConfig,
-    getPlan,
-    planPolicy
-  })
-);
+    }
+  });
 
 const server = express();
 
@@ -147,14 +137,16 @@ server.post("/webhooks", express.raw({ type: "application/json" }), async (req, 
     return;
   }
 
-  const payload = req.body.toString("utf8");
-
-  try {
-    webhooks.verify(payload, signature);
-  } catch (error) {
-    const statusCode = error instanceof Error && error.name === "WebhookVerificationError" ? 401 : 400;
-    console.error("Webhook verification error", error);
-    res.status(statusCode).send("Webhook verification failed");
+  const payloadBuffer = req.body as Buffer;
+  const payloadText = payloadBuffer.toString("utf8");
+  const verified = await verifyWebhookSignature({
+    payload: payloadBuffer,
+    signatureHeader: signature,
+    secret: process.env.WEBHOOK_SECRET ?? ""
+  });
+  if (!verified) {
+    console.error("Webhook verification error");
+    res.status(401).send("Webhook verification failed");
     return;
   }
 
@@ -162,21 +154,23 @@ server.post("/webhooks", express.raw({ type: "application/json" }), async (req, 
 
   let parsedPayload: unknown;
   try {
-    parsedPayload = JSON.parse(payload);
+    parsedPayload = JSON.parse(payloadText);
   } catch (error) {
     console.error("Webhook payload parse error", error);
     return;
   }
 
-  void webhooks
-    .receive({
-      id,
-      name: name as any,
-      payload: parsedPayload as any
-    } as any)
-    .catch((error) => {
-      console.error("Webhook handler error", error);
-    });
+  void handleWebhookEvent({
+    name,
+    payload: parsedPayload,
+    handlers: {
+      installation: (payload) => installationHandler(payload),
+      pull_request: (payload) => pullRequestHandler({ payload })
+    },
+    deliveryId: id
+  }).catch((error) => {
+    console.error("Webhook handler error", error);
+  });
 });
 
 server.post("/callbacks/runner", express.json({ type: "application/json" }), async (req, res) => {

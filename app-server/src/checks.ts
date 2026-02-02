@@ -1,4 +1,4 @@
-import { Octokit } from "@octokit/rest";
+import type { OctokitLike } from "./githubClient.js";
 
 const CHECK_NAMES = ["CI/check", "CI/autofix"] as const;
 
@@ -54,7 +54,7 @@ export const ensureCheckRuns = async ({
   repo,
   headSha
 }: {
-  octokit: Octokit;
+  octokit: OctokitLike;
   owner: string;
   repo: string;
   headSha: string;
@@ -72,6 +72,7 @@ export const ensureCheckRuns = async ({
     CHECK_NAMES.map(async (name) => {
       const existingId = existing[name];
       if (existingId) {
+        console.log("Check run already exists", { name, checkRunId: existingId });
         return [name, existingId] as const;
       }
       const response = await octokit.checks.create({
@@ -83,6 +84,7 @@ export const ensureCheckRuns = async ({
         started_at: createdAt,
         output: buildOutput("Lint Autofix Pro queued.")
       });
+      console.log("Check run created", { name, checkRunId: response.data.id });
       return [name, response.data.id] as const;
     })
   );
@@ -102,7 +104,7 @@ export const updateCheckRun = async ({
   summary,
   text
 }: {
-  octokit: Octokit;
+  octokit: OctokitLike;
   owner: string;
   repo: string;
   headSha: string;
@@ -126,6 +128,7 @@ export const updateCheckRun = async ({
       started_at: status === "in_progress" ? now : undefined,
       output
     });
+    console.log("Check run updated", { name, checkRunId, status, conclusion });
     return;
   }
 
@@ -140,6 +143,7 @@ export const updateCheckRun = async ({
     started_at: status === "in_progress" ? now : undefined,
     output
   });
+  console.log("Check run created", { name, status, conclusion });
 };
 
 export const updateCheckRuns = async ({
@@ -153,7 +157,7 @@ export const updateCheckRuns = async ({
   summary,
   text
 }: {
-  octokit: Octokit;
+  octokit: OctokitLike;
   owner: string;
   repo: string;
   headSha: string;

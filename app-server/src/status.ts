@@ -1,4 +1,4 @@
-import { Octokit } from "@octokit/rest";
+import type { OctokitLike } from "./githubClient.js";
 
 const STATUS_CONTEXTS = ["CI/check", "CI/autofix"] as const;
 
@@ -20,7 +20,7 @@ export const reportStatus = async ({
   description,
   targetUrl
 }: {
-  octokit: Octokit;
+  octokit: OctokitLike;
   owner: string;
   repo: string;
   sha: string;
@@ -49,7 +49,7 @@ const reportStatuses = async ({
   description,
   targetUrl
 }: {
-  octokit: Octokit;
+  octokit: OctokitLike;
   owner: string;
   repo: string;
   sha: string;
@@ -92,7 +92,7 @@ export const reportRequiredStatusesStart = async ({
   sha,
   targetUrl
 }: {
-  octokit: Octokit;
+  octokit: OctokitLike;
   owner: string;
   repo: string;
   sha: string;
@@ -116,7 +116,7 @@ export const reportRequiredStatusesSuccess = async ({
   targetUrl,
   description = "Lint Autofix Pro: completed"
 }: {
-  octokit: Octokit;
+  octokit: OctokitLike;
   owner: string;
   repo: string;
   sha: string;
@@ -141,7 +141,7 @@ export const reportRequiredStatusesFailure = async ({
   targetUrl,
   description = "Lint Autofix Pro: internal error"
 }: {
-  octokit: Octokit;
+  octokit: OctokitLike;
   owner: string;
   repo: string;
   sha: string;

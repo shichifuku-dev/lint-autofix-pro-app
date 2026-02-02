@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from "vitest";
-import type { Octokit } from "@octokit/rest";
 import { createPullRequestHandler } from "./pullRequestHandler.js";
 
 const buildPayload = () => ({
@@ -22,7 +21,7 @@ const buildOctokit = () => ({
   actions: {
     createWorkflowDispatch: vi.fn().mockResolvedValue({})
   }
-}) as unknown as Octokit;
+}) as any;
 
 describe("pull request handler dispatch flow", () => {
   it("skips when no supported files are changed", async () => {
@@ -31,11 +30,7 @@ describe("pull request handler dispatch flow", () => {
     const markInProgress = vi.fn().mockResolvedValue(undefined);
 
     const handler = createPullRequestHandler({
-      app: {
-        getInstallationOctokit: vi.fn().mockResolvedValue({
-          request: vi.fn().mockResolvedValue({ data: { token: "token123" } })
-        })
-      } as any,
+      getInstallationToken: vi.fn().mockResolvedValue("token123"),
       createOctokit: () => octokit,
       createCheckReporter: () => ({
         init: vi.fn().mockResolvedValue(undefined),
@@ -46,6 +41,7 @@ describe("pull request handler dispatch flow", () => {
       }),
       listPullRequestFiles: vi.fn().mockResolvedValue(["README.md"]),
       detectRepoTooling: vi.fn().mockResolvedValue({ hasEslint: true, hasPrettier: true }),
+      isSupportedFile: vi.fn().mockReturnValue(false),
       dispatchRunnerWorkflow: vi.fn().mockResolvedValue(undefined),
       getRunnerConfig: vi.fn().mockReturnValue({
         owner: "runner",
@@ -74,11 +70,7 @@ describe("pull request handler dispatch flow", () => {
     const completeSuccess = vi.fn().mockResolvedValue(undefined);
 
     const handler = createPullRequestHandler({
-      app: {
-        getInstallationOctokit: vi.fn().mockResolvedValue({
-          request: vi.fn().mockResolvedValue({ data: { token: "token123" } })
-        })
-      } as any,
+      getInstallationToken: vi.fn().mockResolvedValue("token123"),
       createOctokit: () => octokit,
       createCheckReporter: () => ({
         init: vi.fn().mockResolvedValue(undefined),
@@ -89,6 +81,7 @@ describe("pull request handler dispatch flow", () => {
       }),
       listPullRequestFiles: vi.fn().mockResolvedValue(["src/app.ts"]),
       detectRepoTooling: vi.fn().mockResolvedValue({ hasEslint: false, hasPrettier: false }),
+      isSupportedFile: vi.fn().mockReturnValue(true),
       dispatchRunnerWorkflow: vi.fn().mockResolvedValue(undefined),
       getRunnerConfig: vi.fn().mockReturnValue({
         owner: "runner",
@@ -118,11 +111,7 @@ describe("pull request handler dispatch flow", () => {
     const dispatchRunnerWorkflow = vi.fn().mockRejectedValue(new Error("boom"));
 
     const handler = createPullRequestHandler({
-      app: {
-        getInstallationOctokit: vi.fn().mockResolvedValue({
-          request: vi.fn().mockResolvedValue({ data: { token: "token123" } })
-        })
-      } as any,
+      getInstallationToken: vi.fn().mockResolvedValue("token123"),
       createOctokit: () => octokit,
       createCheckReporter: () => ({
         init: vi.fn().mockResolvedValue(undefined),
@@ -133,6 +122,7 @@ describe("pull request handler dispatch flow", () => {
       }),
       listPullRequestFiles: vi.fn().mockResolvedValue(["src/app.ts"]),
       detectRepoTooling: vi.fn().mockResolvedValue({ hasEslint: true, hasPrettier: true }),
+      isSupportedFile: vi.fn().mockReturnValue(true),
       dispatchRunnerWorkflow,
       getRunnerConfig: vi.fn().mockReturnValue({
         owner: "runner",

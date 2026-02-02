@@ -1,4 +1,4 @@
-import type { Octokit } from "@octokit/rest";
+import type { OctokitLike } from "./githubClient.js";
 import type { RunnerConfig } from "./runnerConfig.js";
 
 export type RunnerDispatchPayload = {
@@ -34,10 +34,17 @@ export const dispatchRunnerWorkflow = async ({
   runnerConfig,
   payload
 }: {
-  octokit: Octokit;
+  octokit: OctokitLike;
   runnerConfig: RunnerConfig;
   payload: RunnerDispatchPayload;
 }): Promise<void> => {
+  console.log("Dispatching runner workflow", {
+    owner: runnerConfig.owner,
+    repo: runnerConfig.repo,
+    workflow: runnerConfig.workflow,
+    prNumber: payload.prNumber,
+    installationId: payload.installationId
+  });
   await octokit.actions.createWorkflowDispatch({
     owner: runnerConfig.owner,
     repo: runnerConfig.repo,

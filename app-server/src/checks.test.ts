@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { type Octokit } from "@octokit/rest";
+import type { OctokitLike } from "./githubClient.js";
 import { ensureCheckRuns, updateCheckRun, updateCheckRuns } from "./checks.js";
 
 const buildOctokit = () => {
@@ -12,7 +12,7 @@ const buildOctokit = () => {
       update,
       listForRef
     }
-  } as unknown as Octokit;
+  } as unknown as OctokitLike;
 };
 
 describe("checks helpers", () => {

@@ -1,4 +1,4 @@
-import { Octokit } from "@octokit/rest";
+import type { OctokitLike } from "./githubClient.js";
 import { ensureCheckRuns, updateCheckRuns, type CheckRunIds } from "./checks.js";
 import {
   reportRequiredStatusesFailure,
@@ -7,7 +7,7 @@ import {
 } from "./status.js";
 
 type CheckReporterOptions = {
-  octokit: Octokit;
+  octokit: OctokitLike;
   owner: string;
   repo: string;
   headSha: string;
