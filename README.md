@@ -29,10 +29,9 @@ This prevents pull requests from being blocked by missing or stuck status checks
 
 1. A pull request is opened or updated
 2. The app checks the repository for supported tools (Prettier / ESLint)
-3. If formatting issues are detected:
-   - Fixable issues are automatically committed to the pull request branch
-   - Non-fixable issues are reported via a pull request comment
-4. If required tools are not configured:
+3. The app dispatches a runner workflow to perform linting and autofix on the PR branch
+4. The runner reports results back to the app, which completes the required checks
+5. If required tools are not configured or supported files are missing:
    - Execution is safely skipped
    - Status checks are still reported
 
@@ -66,7 +65,7 @@ No configuration files are generated, modified, or inferred automatically.
 
 ## Pull Request Status Checks
 
-The app reports results as both **GitHub check runs** and **commit statuses**.
+The app reports results as **GitHub check runs**, with commit statuses only as a fallback.
 
 Required contexts reported:
 

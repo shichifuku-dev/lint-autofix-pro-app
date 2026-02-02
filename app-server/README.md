@@ -1,6 +1,6 @@
 # Lint Autofix Pro (App Server)
 
-Production-ready GitHub App server that listens to `pull_request` webhooks, runs Prettier/ESLint auto-fixes, and posts a single updated comment with a diff.
+Production-ready GitHub App server that listens to `pull_request` webhooks, dispatches a runner workflow for Prettier/ESLint auto-fixes, and reports the required check runs.
 
 ## Requirements
 - Node.js 20
@@ -22,6 +22,11 @@ Set these in your hosting platform or `.env` file:
 - `ADMIN_TOKEN` — bearer token for the `/admin` endpoint
 - `DATABASE_URL` — Prisma connection string (SQLite recommended below)
 - `PORT` — optional; defaults to `3000`
+- `PUBLIC_APP_URL` — public base URL for runner callbacks (e.g. `https://app.example.com`)
+- `RUNNER_OWNER` — runner repository owner (default: `shichifuku-dev`)
+- `RUNNER_REPO` — runner repository name (default: `lint-autofix-pro-runner`)
+- `RUNNER_WORKFLOW` — workflow file name (default: `run.yml`)
+- `RUNNER_CALLBACK_TOKEN` — shared secret for `/callbacks/runner`
 
 ## Prisma in production
 Generate the client and apply migrations before starting:
@@ -68,6 +73,7 @@ Auto-commit only runs when `mode: autocommit` and `autocommit.enabled: true`.
 - `POST /webhooks` — GitHub webhook intake
 - `GET /health` — health check
 - `GET /admin` — minimal admin page (requires `Authorization: Bearer $ADMIN_TOKEN`)
+- `POST /callbacks/runner` — runner callback endpoint (requires `Authorization: Bearer $RUNNER_CALLBACK_TOKEN`)
 
 ## Production deployment
 

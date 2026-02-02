@@ -18,15 +18,37 @@ const buildOutput = (summary: string, text?: string): CheckOutput => ({
   text
 });
 
-const formatErrorDetails = (error: unknown): string => {
-  if (error instanceof Error) {
-    const stack = error.stack ? `\n\n${error.stack}` : "";
-    return `${error.name}: ${error.message}${stack}`;
+const pickNewestCheckRunId = (ids: number[]): number => Math.max(...ids);
+
+const collectExistingCheckRuns = (checkRuns: Array<{ name?: string; id?: number }>): CheckRunIds | null => {
+  const grouped = new Map<CheckName, number[]>();
+  for (const run of checkRuns) {
+    if (!run.name || typeof run.id !== "number") {
+      continue;
+    }
+    if (CHECK_NAMES.includes(run.name as CheckName)) {
+      const name = run.name as CheckName;
+      const entries = grouped.get(name) ?? [];
+      entries.push(run.id);
+      grouped.set(name, entries);
+    }
   }
-  return String(error);
+
+  if (grouped.size === 0) {
+    return null;
+  }
+
+  const resolved: Partial<CheckRunIds> = {};
+  for (const name of CHECK_NAMES) {
+    const ids = grouped.get(name);
+    if (ids && ids.length > 0) {
+      resolved[name] = pickNewestCheckRunId(ids);
+    }
+  }
+  return resolved as CheckRunIds;
 };
 
-export const createCheckRuns = async ({
+export const ensureCheckRuns = async ({
   octokit,
   owner,
   repo,
@@ -37,144 +59,132 @@ export const createCheckRuns = async ({
   repo: string;
   headSha: string;
 }): Promise<CheckRunIds> => {
-  const startedAt = new Date().toISOString();
-  const runs = await Promise.all(
+  const existingRuns = await octokit.checks.listForRef({
+    owner,
+    repo,
+    ref: headSha,
+    per_page: 100
+  });
+
+  const existing = collectExistingCheckRuns(existingRuns.data.check_runs ?? []) ?? ({} as CheckRunIds);
+  const createdAt = new Date().toISOString();
+  const results = await Promise.all(
     CHECK_NAMES.map(async (name) => {
+      const existingId = existing[name];
+      if (existingId) {
+        return [name, existingId] as const;
+      }
       const response = await octokit.checks.create({
         owner,
         repo,
         name,
         head_sha: headSha,
-        status: "in_progress",
-        started_at: startedAt,
-        output: buildOutput("Lint Autofix Pro started.")
+        status: "queued",
+        started_at: createdAt,
+        output: buildOutput("Lint Autofix Pro queued.")
       });
       return [name, response.data.id] as const;
     })
   );
 
-  return Object.fromEntries(runs) as CheckRunIds;
+  return Object.fromEntries(results) as CheckRunIds;
 };
 
-export const reportCheckStart = async ({
+export const updateCheckRun = async ({
   octokit,
   owner,
   repo,
-  headSha
+  headSha,
+  checkRunId,
+  name,
+  status,
+  conclusion,
+  summary,
+  text
 }: {
   octokit: Octokit;
   owner: string;
   repo: string;
   headSha: string;
-}): Promise<CheckRunIds> =>
-  createCheckRuns({
-    octokit,
+  checkRunId?: number;
+  name: CheckName;
+  status: "queued" | "in_progress" | "completed";
+  conclusion?: "success" | "failure";
+  summary: string;
+  text?: string;
+}): Promise<void> => {
+  const output = buildOutput(summary, text);
+  const now = new Date().toISOString();
+  if (checkRunId) {
+    await octokit.checks.update({
+      owner,
+      repo,
+      check_run_id: checkRunId,
+      status,
+      conclusion: status === "completed" ? conclusion : undefined,
+      completed_at: status === "completed" ? now : undefined,
+      started_at: status === "in_progress" ? now : undefined,
+      output
+    });
+    return;
+  }
+
+  await octokit.checks.create({
     owner,
     repo,
-    headSha
+    name,
+    head_sha: headSha,
+    status,
+    conclusion: status === "completed" ? conclusion : undefined,
+    completed_at: status === "completed" ? now : undefined,
+    started_at: status === "in_progress" ? now : undefined,
+    output
   });
+};
 
-export const completeCheckRuns = async ({
+export const updateCheckRuns = async ({
   octokit,
   owner,
   repo,
   headSha,
   checkRunIds,
+  status,
   conclusion,
-  output
+  summary,
+  text
 }: {
   octokit: Octokit;
   owner: string;
   repo: string;
   headSha: string;
   checkRunIds?: CheckRunIds | null;
-  conclusion: "success" | "failure";
-  output: CheckOutput;
+  status: "queued" | "in_progress" | "completed";
+  conclusion?: "success" | "failure";
+  summary: string;
+  text?: string;
 }): Promise<void> => {
-  const completedAt = new Date().toISOString();
-
-  if (checkRunIds) {
-    await Promise.all(
-      CHECK_NAMES.map((name) =>
-        octokit.checks.update({
-          owner,
-          repo,
-          check_run_id: checkRunIds[name],
-          status: "completed",
-          conclusion,
-          completed_at: completedAt,
-          output
-        })
-      )
-    );
-    return;
-  }
-
   await Promise.all(
     CHECK_NAMES.map((name) =>
-      octokit.checks.create({
+      updateCheckRun({
+        octokit,
         owner,
         repo,
+        headSha,
+        checkRunId: checkRunIds?.[name],
         name,
-        head_sha: headSha,
-        status: "completed",
+        status,
         conclusion,
-        completed_at: completedAt,
-        output
+        summary,
+        text
       })
     )
   );
 };
 
-export const buildSuccessOutput = (): CheckOutput => buildOutput("Lint Autofix Pro finished successfully.");
-
-export const buildFailureOutput = (error: unknown): CheckOutput =>
-  buildOutput("Lint Autofix Pro encountered an error.", formatErrorDetails(error));
-
-export const reportCheckCompleteSuccess = async ({
-  octokit,
-  owner,
-  repo,
-  headSha,
-  checkRunIds
-}: {
-  octokit: Octokit;
-  owner: string;
-  repo: string;
-  headSha: string;
-  checkRunIds?: CheckRunIds | null;
-}): Promise<void> =>
-  completeCheckRuns({
-    octokit,
-    owner,
-    repo,
-    headSha,
-    checkRunIds,
-    conclusion: "success",
-    output: buildSuccessOutput()
-  });
-
-export const reportCheckCompleteFailure = async ({
-  octokit,
-  owner,
-  repo,
-  headSha,
-  checkRunIds,
-  error
-}: {
-  octokit: Octokit;
-  owner: string;
-  repo: string;
-  headSha: string;
-  checkRunIds?: CheckRunIds | null;
-  error: unknown;
-}): Promise<void> =>
-  completeCheckRuns({
-    octokit,
-    owner,
-    repo,
-    headSha,
-    checkRunIds,
-    conclusion: "failure",
-    output: buildFailureOutput(error)
-  });
+export const formatErrorDetails = (error: unknown): string => {
+  if (error instanceof Error) {
+    const stack = error.stack ? `\n\n${error.stack}` : "";
+    return `${error.name}: ${error.message}${stack}`;
+  }
+  return String(error);
+};

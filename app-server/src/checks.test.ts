@@ -1,49 +1,59 @@
 import { describe, expect, it, vi } from "vitest";
 import { type Octokit } from "@octokit/rest";
-import { reportCheckCompleteFailure, reportCheckCompleteSuccess, reportCheckStart } from "./checks.js";
+import { ensureCheckRuns, updateCheckRun, updateCheckRuns } from "./checks.js";
 
 const buildOctokit = () => {
   const create = vi.fn();
   const update = vi.fn();
+  const listForRef = vi.fn();
   return {
     checks: {
       create,
-      update
+      update,
+      listForRef
     }
   } as unknown as Octokit;
 };
 
 describe("checks helpers", () => {
-  it("creates in-progress check runs for required contexts", async () => {
+  it("ensures check runs by reusing existing IDs", async () => {
     const octokit = buildOctokit();
+    const listForRef = octokit.checks.listForRef as unknown as ReturnType<typeof vi.fn>;
     const create = octokit.checks.create as unknown as ReturnType<typeof vi.fn>;
-    create.mockResolvedValueOnce({ data: { id: 101 } });
-    create.mockResolvedValueOnce({ data: { id: 102 } });
 
-    const result = await reportCheckStart({
+    listForRef.mockResolvedValueOnce({
+      data: {
+        check_runs: [{ name: "CI/check", id: 101 }]
+      }
+    });
+    create.mockResolvedValueOnce({ data: { id: 202 } });
+
+    const result = await ensureCheckRuns({
       octokit,
       owner: "octo",
       repo: "repo",
       headSha: "sha123"
     });
 
-    expect(create).toHaveBeenCalledTimes(2);
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "CI/check", status: "in_progress", head_sha: "sha123" }));
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "CI/autofix", status: "in_progress", head_sha: "sha123" }));
-    expect(result).toEqual({ "CI/check": 101, "CI/autofix": 102 });
+    expect(listForRef).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ "CI/check": 101, "CI/autofix": 202 });
   });
 
-  it("completes check runs with success", async () => {
+  it("updates check runs with success", async () => {
     const octokit = buildOctokit();
     const update = octokit.checks.update as unknown as ReturnType<typeof vi.fn>;
     update.mockResolvedValue({});
 
-    await reportCheckCompleteSuccess({
+    await updateCheckRuns({
       octokit,
       owner: "octo",
       repo: "repo",
       headSha: "sha123",
-      checkRunIds: { "CI/check": 201, "CI/autofix": 202 }
+      checkRunIds: { "CI/check": 201, "CI/autofix": 202 },
+      status: "completed",
+      conclusion: "success",
+      summary: "Done"
     });
 
     expect(update).toHaveBeenCalledTimes(2);
@@ -51,21 +61,23 @@ describe("checks helpers", () => {
     expect(update).toHaveBeenCalledWith(expect.objectContaining({ check_run_id: 202, conclusion: "success" }));
   });
 
-  it("creates completed failure check runs when ids are missing", async () => {
+  it("creates a check run when updating without an ID", async () => {
     const octokit = buildOctokit();
     const create = octokit.checks.create as unknown as ReturnType<typeof vi.fn>;
-    create.mockResolvedValue({ data: { id: 301 } });
+    create.mockResolvedValue({ data: { id: 303 } });
 
-    await reportCheckCompleteFailure({
+    await updateCheckRun({
       octokit,
       owner: "octo",
       repo: "repo",
       headSha: "sha123",
-      error: new Error("boom")
+      name: "CI/check",
+      status: "completed",
+      conclusion: "failure",
+      summary: "Oops"
     });
 
-    expect(create).toHaveBeenCalledTimes(2);
+    expect(create).toHaveBeenCalledTimes(1);
     expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "CI/check", conclusion: "failure" }));
-    expect(create).toHaveBeenCalledWith(expect.objectContaining({ name: "CI/autofix", conclusion: "failure" }));
   });
 });

@@ -1,23 +1,11 @@
 import { App } from "@octokit/app";
 import { Octokit } from "@octokit/rest";
-import { Prisma } from "@prisma/client";
-import type { PrismaClient } from "@prisma/client";
-import { buildCommentBody } from "./comment.js";
-import { upsertIssueComment } from "./comments.js";
-import { configToJson, getDefaultConfig } from "./config.js";
-import {
-  reportCheckCompleteFailure,
-  reportCheckCompleteSuccess,
-  reportCheckStart,
-  type CheckRunIds
-} from "./checks.js";
-import { runPullRequestPipeline } from "./pipeline.js";
-import {
-  getPrHeadSha,
-  reportRequiredStatusesFailure,
-  reportRequiredStatusesStart,
-  reportRequiredStatusesSuccess
-} from "./status.js";
+import { createCheckReporter } from "./checkReporter.js";
+import { getPrHeadSha } from "./status.js";
+import { detectRepoTooling, isSupportedFile, listPullRequestFiles } from "./repoInspector.js";
+import { dispatchRunnerWorkflow } from "./runnerDispatch.js";
+import { getRunnerConfig } from "./runnerConfig.js";
+import { getPlan, planPolicy } from "./plan.js";
 
 type PullRequestPayload = {
   action: "opened" | "synchronize" | "reopened" | "ready_for_review";
@@ -27,58 +15,35 @@ type PullRequestPayload = {
     number: number;
     html_url?: string;
     head: { sha: string; ref: string; repo: { full_name: string } | null };
-    base: { repo: { full_name: string } | null };
+    base: { sha?: string; repo: { full_name: string } | null };
   };
 };
 
 type PullRequestHandlerDeps = {
   app: App;
-  prisma: PrismaClient;
-  runPullRequestPipeline: typeof runPullRequestPipeline;
-  buildCommentBody: typeof buildCommentBody;
-  upsertIssueComment: typeof upsertIssueComment;
-  reportCheckStart: typeof reportCheckStart;
-  reportCheckCompleteSuccess: typeof reportCheckCompleteSuccess;
-  reportCheckCompleteFailure: typeof reportCheckCompleteFailure;
-  reportRequiredStatusesStart: typeof reportRequiredStatusesStart;
-  reportRequiredStatusesSuccess: typeof reportRequiredStatusesSuccess;
-  reportRequiredStatusesFailure: typeof reportRequiredStatusesFailure;
-  getDefaultConfig: typeof getDefaultConfig;
   createOctokit: (token: string) => Octokit;
+  createCheckReporter?: typeof createCheckReporter;
+  listPullRequestFiles?: typeof listPullRequestFiles;
+  detectRepoTooling?: typeof detectRepoTooling;
+  dispatchRunnerWorkflow?: typeof dispatchRunnerWorkflow;
+  getRunnerConfig?: typeof getRunnerConfig;
+  getPlan?: typeof getPlan;
+  planPolicy?: typeof planPolicy;
 };
 
 const ALLOWED_ACTIONS = ["opened", "synchronize", "reopened", "ready_for_review"] as const;
 
-const buildSuccessDescription = (result: {
-  changedFiles: string[];
-  installStatus: string;
-  prettierStatus: string;
-  eslintStatus: string;
-}): string => {
-  if (result.changedFiles.length > 0) {
-    return "Lint Autofix Pro: fixes applied";
-  }
-  if (result.installStatus === "skipped" || result.prettierStatus === "skipped" || result.eslintStatus === "skipped") {
-    return "No changes needed";
-  }
-  return "Lint Autofix Pro: completed";
-};
-
 export const createPullRequestHandler =
   ({
     app,
-    prisma,
-    runPullRequestPipeline,
-    buildCommentBody,
-    upsertIssueComment,
-    reportCheckStart,
-    reportCheckCompleteSuccess,
-    reportCheckCompleteFailure,
-    reportRequiredStatusesStart,
-    reportRequiredStatusesSuccess,
-    reportRequiredStatusesFailure,
-    getDefaultConfig,
-    createOctokit
+    createOctokit,
+    createCheckReporter: createCheckReporterImpl = createCheckReporter,
+    listPullRequestFiles: listPullRequestFilesImpl = listPullRequestFiles,
+    detectRepoTooling: detectRepoToolingImpl = detectRepoTooling,
+    dispatchRunnerWorkflow: dispatchRunnerWorkflowImpl = dispatchRunnerWorkflow,
+    getRunnerConfig: getRunnerConfigImpl = getRunnerConfig,
+    getPlan: getPlanImpl = getPlan,
+    planPolicy: planPolicyImpl = planPolicy
   }: PullRequestHandlerDeps) =>
   async (event: { payload: unknown }): Promise<void> => {
     const payload = event.payload as PullRequestPayload;
@@ -97,11 +62,11 @@ export const createPullRequestHandler =
     const installationId = payload.installation.id;
     const owner = payload.repository?.owner?.login;
     const repo = payload.repository?.name;
-    const repoFullName = payload.repository?.full_name;
     if (!owner || !repo) {
       console.warn("Missing repository info in pull_request payload", { installationId });
       return;
     }
+    const repoFullName = payload.repository?.full_name ?? `${owner}/${repo}`;
     const pullRequest = payload.pull_request;
     if (!pullRequest.head.repo || !pullRequest.base.repo) {
       return;
@@ -113,7 +78,6 @@ export const createPullRequestHandler =
     }
     const targetUrl = pullRequest.html_url;
 
-    let checkRunIds: CheckRunIds | null = null;
     let octokit: Octokit | null = null;
 
     try {
@@ -124,156 +88,80 @@ export const createPullRequestHandler =
       const token = tokenResponse.data.token as string;
       octokit = createOctokit(token);
 
-      await reportRequiredStatusesStart({
+      const reporter = createCheckReporterImpl({
         octokit,
         owner,
         repo,
-        sha: headSha,
+        headSha,
         targetUrl
       });
+      await reporter.init();
 
-      checkRunIds = await reportCheckStart({
+      const changedFiles = await listPullRequestFilesImpl({
         octokit,
         owner,
         repo,
-        headSha
+        pullNumber: pullRequest.number
       });
-      const result = await runPullRequestPipeline({
-        owner,
-        repo,
-        number: pullRequest.number,
-        headSha,
-        headRef: pullRequest.head.ref,
-        headRepoFullName: pullRequest.head.repo.full_name,
-        isFork: pullRequest.head.repo.full_name !== pullRequest.base.repo.full_name,
-        installationToken: token
-      });
-
-      const resolvedRepoFullName = repoFullName ?? `${owner}/${repo}`;
-      const accountLogin = owner;
-      const accountType = payload.repository?.owner?.type ?? "Organization";
-      try {
-        await prisma.$transaction(async (tx) => {
-          await tx.installation.upsert({
-            where: { installationId },
-            update: {
-              accountLogin,
-              accountType
-            },
-            create: {
-              installationId,
-              accountLogin,
-              accountType
-            }
-          });
-          await tx.repoConfig.upsert({
-            where: {
-              installationId_repoFullName: {
-                installationId,
-                repoFullName: resolvedRepoFullName
-              }
-            },
-            update: {
-              configJson: configToJson(result.config)
-            },
-            create: {
-              installationId,
-              repoFullName: resolvedRepoFullName,
-              configJson: configToJson(result.config)
-            }
-          });
-        });
-      } catch (error) {
-        if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === "P2003") {
-          console.warn("Skipping repoConfig upsert due to missing FK parent", {
-            installationId,
-            repoFullName: resolvedRepoFullName
-          });
-        } else {
-          throw error;
-        }
+      const hasSupportedFiles = changedFiles.some((file) => isSupportedFile(file));
+      if (!hasSupportedFiles) {
+        await reporter.completeSuccess("Skipped: no supported files changed");
+        return;
       }
 
-      const commentBody = buildCommentBody({
-        config: result.config,
-        installStatus: result.installStatus,
-        prettierStatus: result.prettierStatus,
-        eslintStatus: result.eslintStatus,
-        changedFiles: result.changedFiles,
-        diff: result.diff,
-        diffTruncated: result.diffTruncated,
-        notes: result.notes,
-        autoCommit: result.autoCommit
-      });
+      const tooling = await detectRepoToolingImpl({ octokit, owner, repo, headSha });
+      if (!tooling.hasEslint && !tooling.hasPrettier) {
+        await reporter.completeSuccess("Skipped: Prettier/ESLint not configured");
+        return;
+      }
 
-      await upsertIssueComment({
-        octokit,
-        owner,
-        repo,
-        issueNumber: pullRequest.number,
-        body: commentBody
-      });
+      await reporter.markInProgress();
 
-      await reportCheckCompleteSuccess({
-        octokit,
-        owner,
-        repo,
-        headSha,
-        checkRunIds
-      });
+      const runnerConfig = getRunnerConfigImpl();
+      if (!runnerConfig.callbackToken || !runnerConfig.callbackUrl) {
+        console.warn("Runner dispatch skipped due to missing callback configuration.");
+        await reporter.completeSuccess("Skipped: dispatch failed (best-effort)");
+        return;
+      }
 
-      await reportRequiredStatusesSuccess({
-        octokit,
-        owner,
-        repo,
-        sha: headSha,
-        targetUrl,
-        description: buildSuccessDescription(result)
-      });
-    } catch (error) {
-      console.error("Processing error", error);
-      if (octokit) {
-        const config = getDefaultConfig();
-        const commentBody = buildCommentBody({
-          config,
-          installStatus: "failed",
-          prettierStatus: "skipped",
-          eslintStatus: "skipped",
-          changedFiles: [],
-          diff: "",
-          diffTruncated: false,
-          notes: ["Lint Autofix Pro encountered an error while processing this pull request."],
-          autoCommit: { attempted: false, pushed: false }
-        });
-        try {
-          await upsertIssueComment({
-            octokit,
+      const plan = getPlanImpl(installationId, repoFullName);
+      const policy = planPolicyImpl(plan);
+
+      try {
+        await dispatchRunnerWorkflowImpl({
+          octokit,
+          runnerConfig,
+          payload: {
             owner,
             repo,
-            issueNumber: pullRequest.number,
-            body: commentBody
-          });
-        } catch (commentError) {
-          console.error("Failed to upsert error comment", commentError);
-        }
+            prNumber: pullRequest.number,
+            headSha,
+            baseSha: pullRequest.base.sha ?? "",
+            ref: pullRequest.head.ref,
+            installationId,
+            plan,
+            priority: policy.priority,
+            callbackUrl: runnerConfig.callbackUrl,
+            callbackToken: runnerConfig.callbackToken
+          }
+        });
+      } catch (error) {
+        console.error("Runner dispatch failed", error);
+        await reporter.completeSuccess("Skipped: dispatch failed (best-effort)");
       }
-
+    } catch (error) {
+      console.error("Pull request handler failed", error);
       if (octokit) {
-        await reportCheckCompleteFailure({
+        const reporter = createCheckReporterImpl({
           octokit,
           owner,
           repo,
           headSha,
-          checkRunIds,
-          error
-        });
-        await reportRequiredStatusesFailure({
-          octokit,
-          owner,
-          repo,
-          sha: headSha,
           targetUrl
         });
+        await reporter.init();
+        await reporter.completeSuccess("Skipped: internal error (best-effort)");
       }
+      throw error;
     }
   };
