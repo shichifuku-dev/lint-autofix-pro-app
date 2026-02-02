@@ -138,13 +138,15 @@ export const reportRequiredStatusesFailure = async ({
   owner,
   repo,
   sha,
-  targetUrl
+  targetUrl,
+  description = "Lint Autofix Pro: internal error"
 }: {
   octokit: Octokit;
   owner: string;
   repo: string;
   sha: string;
   targetUrl?: string;
+  description?: string;
 }): Promise<void> =>
   reportStatuses({
     octokit,
@@ -152,6 +154,6 @@ export const reportRequiredStatusesFailure = async ({
     repo,
     sha,
     state: "failure",
-    description: "Lint Autofix Pro: internal error",
+    description,
     targetUrl
   });

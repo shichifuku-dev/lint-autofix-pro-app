@@ -4,17 +4,14 @@ import { App } from "@octokit/app";
 import { Webhooks } from "@octokit/webhooks";
 import { prisma } from "./db.js";
 import { Octokit } from "@octokit/rest";
-import { buildCommentBody } from "./comment.js";
-import { upsertIssueComment } from "./comments.js";
-import { getDefaultConfig } from "./config.js";
-import { reportCheckCompleteFailure, reportCheckCompleteSuccess, reportCheckStart } from "./checks.js";
-import { runPullRequestPipeline } from "./pipeline.js";
-import {
-  reportRequiredStatusesFailure,
-  reportRequiredStatusesStart,
-  reportRequiredStatusesSuccess
-} from "./status.js";
+import { createCheckReporter } from "./checkReporter.js";
+import { ensureCheckRuns, updateCheckRun } from "./checks.js";
+import { getRunnerConfig } from "./runnerConfig.js";
 import { createPullRequestHandler } from "./pullRequestHandler.js";
+import { dispatchRunnerWorkflow } from "./runnerDispatch.js";
+import { detectRepoTooling, listPullRequestFiles } from "./repoInspector.js";
+import { getPlan, planPolicy } from "./plan.js";
+import { reportStatus } from "./status.js";
 
 const requiredEnv = ["APP_ID", "PRIVATE_KEY", "WEBHOOK_SECRET"] as const;
 for (const key of requiredEnv) {
@@ -77,18 +74,14 @@ webhooks.on(
   "pull_request",
   createPullRequestHandler({
     app,
-    prisma,
-    runPullRequestPipeline,
-    buildCommentBody,
-    upsertIssueComment,
-    reportCheckStart,
-    reportCheckCompleteSuccess,
-    reportCheckCompleteFailure,
-    reportRequiredStatusesStart,
-    reportRequiredStatusesSuccess,
-    reportRequiredStatusesFailure,
-    getDefaultConfig,
-    createOctokit: (token) => new Octokit({ auth: token })
+    createOctokit: (token) => new Octokit({ auth: token }),
+    createCheckReporter,
+    listPullRequestFiles,
+    detectRepoTooling,
+    dispatchRunnerWorkflow,
+    getRunnerConfig,
+    getPlan,
+    planPolicy
   })
 );
 
@@ -184,6 +177,106 @@ server.post("/webhooks", express.raw({ type: "application/json" }), async (req, 
     .catch((error) => {
       console.error("Webhook handler error", error);
     });
+});
+
+server.post("/callbacks/runner", express.json({ type: "application/json" }), async (req, res) => {
+  const { callbackToken } = getRunnerConfig();
+  const authHeader = req.headers.authorization ?? "";
+
+  if (!callbackToken || authHeader !== `Bearer ${callbackToken}`) {
+    res.status(401).send("Unauthorized");
+    return;
+  }
+
+  const payload = req.body as {
+    owner?: string;
+    repo?: string;
+    headSha?: string;
+    installationId?: number;
+    checkConclusion?: "success" | "failure";
+    autofixConclusion?: "success" | "failure";
+    summary?: string;
+    detailsUrl?: string;
+  };
+
+  if (!payload.owner || !payload.repo || !payload.headSha || !payload.installationId || !payload.summary) {
+    res.status(400).send("Missing callback payload fields");
+    return;
+  }
+
+  const checkConclusion = payload.checkConclusion ?? "success";
+  const autofixConclusion = payload.autofixConclusion ?? "success";
+
+  try {
+    const appOctokit = await app.getInstallationOctokit(payload.installationId);
+    const tokenResponse = await appOctokit.request("POST /app/installations/{installation_id}/access_tokens", {
+      installation_id: payload.installationId
+    });
+    const token = tokenResponse.data.token as string;
+    const octokit = new Octokit({ auth: token });
+
+    try {
+      const checkRunIds = await ensureCheckRuns({
+        octokit,
+        owner: payload.owner,
+        repo: payload.repo,
+        headSha: payload.headSha
+      });
+
+      await updateCheckRun({
+        octokit,
+        owner: payload.owner,
+        repo: payload.repo,
+        headSha: payload.headSha,
+        checkRunId: checkRunIds["CI/check"],
+        name: "CI/check",
+        status: "completed",
+        conclusion: checkConclusion,
+        summary: payload.summary,
+        text: payload.detailsUrl ? `Details: ${payload.detailsUrl}` : undefined
+      });
+
+      await updateCheckRun({
+        octokit,
+        owner: payload.owner,
+        repo: payload.repo,
+        headSha: payload.headSha,
+        checkRunId: checkRunIds["CI/autofix"],
+        name: "CI/autofix",
+        status: "completed",
+        conclusion: autofixConclusion,
+        summary: payload.summary,
+        text: payload.detailsUrl ? `Details: ${payload.detailsUrl}` : undefined
+      });
+    } catch (error) {
+      console.error("Check run update failed; falling back to commit statuses.", error);
+      await reportStatus({
+        octokit,
+        owner: payload.owner,
+        repo: payload.repo,
+        sha: payload.headSha,
+        context: "CI/check",
+        state: checkConclusion === "failure" ? "failure" : "success",
+        description: payload.summary,
+        targetUrl: payload.detailsUrl
+      });
+      await reportStatus({
+        octokit,
+        owner: payload.owner,
+        repo: payload.repo,
+        sha: payload.headSha,
+        context: "CI/autofix",
+        state: autofixConclusion === "failure" ? "failure" : "success",
+        description: payload.summary,
+        targetUrl: payload.detailsUrl
+      });
+    }
+
+    res.status(200).send("OK");
+  } catch (error) {
+    console.error("Runner callback error", error);
+    res.status(500).send("Callback processing failed");
+  }
 });
 
 const port = Number(process.env.PORT ?? 3000);
