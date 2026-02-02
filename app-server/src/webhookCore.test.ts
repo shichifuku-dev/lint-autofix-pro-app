@@ -1,5 +1,6 @@
+import crypto from "node:crypto";
 import { describe, expect, it } from "vitest";
-import { verifyWebhookSignature } from "./webhookCore.js";
+import { verifyWebhookSignature } from "./webhookSignature.js";
 
 const toHex = (bytes: Uint8Array): string =>
   Array.from(bytes)
@@ -7,20 +8,19 @@ const toHex = (bytes: Uint8Array): string =>
     .join("");
 
 describe("verifyWebhookSignature", () => {
-  it("verifies a valid signature", async () => {
+  it("verifies a valid signature", () => {
     const payload = "hello world";
     const secret = "super-secret";
-    const key = await crypto.subtle.importKey(
-      "raw",
-      new TextEncoder().encode(secret),
-      { name: "HMAC", hash: "SHA-256" },
-      false,
-      ["sign"]
-    );
-    const mac = await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(payload));
-    const signature = `sha256=${toHex(new Uint8Array(mac))}`;
+    const signature = `sha256=${toHex(
+      new Uint8Array(
+        crypto
+          .createHmac("sha256", secret)
+          .update(payload)
+          .digest()
+      )
+    )}`;
 
-    const verified = await verifyWebhookSignature({
+    const verified = verifyWebhookSignature({
       payload,
       signatureHeader: signature,
       secret
@@ -29,8 +29,8 @@ describe("verifyWebhookSignature", () => {
     expect(verified).toBe(true);
   });
 
-  it("rejects an invalid signature", async () => {
-    const verified = await verifyWebhookSignature({
+  it("rejects an invalid signature", () => {
+    const verified = verifyWebhookSignature({
       payload: "payload",
       signatureHeader: "sha256=deadbeef",
       secret: "secret"

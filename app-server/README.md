@@ -16,8 +16,8 @@ Production-ready GitHub App server that listens to `pull_request` webhooks, disp
 
 ## Production environment variables
 Set these in your hosting platform or `.env` file:
-- `APP_ID` — GitHub App ID
-- `PRIVATE_KEY` — PEM private key with newlines escaped (`\n`)
+- `GITHUB_APP_ID` — GitHub App ID
+- `GITHUB_APP_PRIVATE_KEY` — PEM private key with newlines escaped (`\n`)
 - `WEBHOOK_SECRET` — GitHub webhook secret
 - `ADMIN_TOKEN` — bearer token for the `/admin` endpoint
 - `DATABASE_URL` — Prisma connection string (SQLite recommended below)
@@ -89,8 +89,8 @@ Build and run the container, mounting a volume for SQLite:
 ```bash
 docker build -t lint-autofix-pro-app ./app-server
 docker run --rm -p 3000:3000 \
-  -e APP_ID=123456 \
-  -e PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----" \
+  -e GITHUB_APP_ID=123456 \
+  -e GITHUB_APP_PRIVATE_KEY="-----BEGIN RSA PRIVATE KEY-----\n...\n-----END RSA PRIVATE KEY-----" \
   -e WEBHOOK_SECRET=supersecret \
   -e ADMIN_TOKEN=changeme \
   -e DATABASE_URL="file:/var/data/app.db" \
@@ -118,5 +118,5 @@ NODE_ENV=production npm run start
 ### Render deployment template
 This repo includes `render.yaml` for a Render web service with a persistent disk.
 1. In Render, choose **New > Blueprint** and select this repo.
-2. Set the required environment variables (`APP_ID`, `PRIVATE_KEY`, `WEBHOOK_SECRET`, `ADMIN_TOKEN`).
+2. Set the required environment variables (`GITHUB_APP_ID`, `GITHUB_APP_PRIVATE_KEY`, `WEBHOOK_SECRET`, `ADMIN_TOKEN`).
 3. Deploy. The service will store SQLite at `/var/data/app.db`.

@@ -11,9 +11,9 @@ services:
       mountPath: /var/data
       sizeGB: 1
     envVars:
-      - key: APP_ID
+      - key: GITHUB_APP_ID
         sync: false
-      - key: PRIVATE_KEY
+      - key: GITHUB_APP_PRIVATE_KEY
         sync: false
       - key: WEBHOOK_SECRET
         sync: false

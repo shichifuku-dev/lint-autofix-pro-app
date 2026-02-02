@@ -14,14 +14,12 @@ const base64UrlEncode = (input: ArrayBuffer | Uint8Array | string): string => {
   return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
 };
 
-const decodeBase64 = (value: string): string => atob(value);
-
 const importPrivateKey = async (pem: string): Promise<CryptoKey> => {
   const stripped = pem
     .replace(/-----BEGIN PRIVATE KEY-----/g, "")
     .replace(/-----END PRIVATE KEY-----/g, "")
     .replace(/\s+/g, "");
-  const binary = decodeBase64(stripped);
+  const binary = atob(stripped);
   const bytes = new Uint8Array([...binary].map((char) => char.charCodeAt(0)));
   return crypto.subtle.importKey(
     "pkcs8",
@@ -59,14 +57,14 @@ export const createAppJwt = async ({
 
 export const getInstallationToken = async ({
   appId,
-  privateKeyBase64,
+  privateKey,
   installationId
 }: {
   appId: string;
-  privateKeyBase64: string;
+  privateKey: string;
   installationId: number;
 }): Promise<string> => {
-  const privateKeyPem = decodeBase64(privateKeyBase64).replace(/\\n/g, "\n");
+  const privateKeyPem = privateKey.replace(/\\n/g, "\n");
   const jwt = await createAppJwt({ appId, privateKeyPem });
   const response = await fetch(`https://api.github.com/app/installations/${installationId}/access_tokens`, {
     method: "POST",
@@ -83,8 +81,8 @@ export const getInstallationToken = async ({
     throw new Error(`Failed to create installation token (${response.status}): ${text}`);
   }
 
-  const data = (await response.json()) as { token?: string };
-  if (!data.token) {
+  const data = await response.json();
+  if (!data || typeof data !== "object" || !("token" in data) || typeof data.token !== "string") {
     throw new Error("Missing installation token in GitHub response");
   }
   return data.token;

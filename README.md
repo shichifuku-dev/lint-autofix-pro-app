@@ -146,8 +146,8 @@ Webhook processing can be deployed to Cloudflare Workers without changing the Gi
 Required environment variables:
 
 - `GITHUB_APP_ID`
-- `GITHUB_WEBHOOK_SECRET`
-- `GITHUB_PRIVATE_KEY_B64` (base64-encoded PEM for the GitHub App private key)
+- `GITHUB_APP_PRIVATE_KEY` (PEM private key with newlines escaped as `\\n`)
+- `WEBHOOK_SECRET`
 
 Optional runner configuration (defaults match the app server):
 

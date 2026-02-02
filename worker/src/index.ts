@@ -1,16 +1,17 @@
-import { createCheckReporter } from "../../app-server/src/checkReporter.js";
-import { createPullRequestHandler } from "../../app-server/src/pullRequestHandler.js";
-import { dispatchRunnerWorkflow } from "../../app-server/src/runnerDispatch.js";
-import { getPlan, planPolicy } from "../../app-server/src/plan.js";
-import { handleWebhookEvent, verifyWebhookSignature } from "../../app-server/src/webhookCore.js";
-import { createGitHubClient } from "./githubClient.js";
+import { createCheckReporter } from "../../shared/checkReporter.js";
+import { createPullRequestHandler } from "../../shared/pullRequestHandler.js";
+import { dispatchRunnerWorkflow } from "../../shared/runnerDispatch.js";
+import { getPlan, planPolicy } from "../../shared/plan.js";
+import { handleWebhookEvent } from "../../shared/webhookCore.js";
+import { createWorkerGitHubClient } from "./githubClient.js";
 import { detectRepoTooling, isSupportedFile, listPullRequestFiles } from "./repoInspector.js";
 import { getInstallationToken } from "./githubApp.js";
+import { verifyWebhookSignature } from "./webhookSignature.js";
 
 type Env = {
   GITHUB_APP_ID: string;
-  GITHUB_PRIVATE_KEY_B64: string;
-  GITHUB_WEBHOOK_SECRET: string;
+  GITHUB_APP_PRIVATE_KEY: string;
+  WEBHOOK_SECRET: string;
   RUNNER_OWNER?: string;
   RUNNER_REPO?: string;
   RUNNER_WORKFLOW?: string;
@@ -60,7 +61,7 @@ export default {
     const verified = await verifyWebhookSignature({
       payload: payloadBuffer,
       signatureHeader: signature,
-      secret: env.GITHUB_WEBHOOK_SECRET
+      secret: env.WEBHOOK_SECRET
     });
     if (!verified) {
       console.error("Webhook verification failed", { deliveryId, event: name });
@@ -81,10 +82,10 @@ export default {
         getInstallationToken: (installationId) =>
           getInstallationToken({
             appId: env.GITHUB_APP_ID,
-            privateKeyBase64: env.GITHUB_PRIVATE_KEY_B64,
+            privateKey: env.GITHUB_APP_PRIVATE_KEY,
             installationId
           }),
-        createOctokit: (token) => createGitHubClient(token),
+        createOctokit: (token) => createWorkerGitHubClient(token),
         createCheckReporter,
         listPullRequestFiles,
         detectRepoTooling,

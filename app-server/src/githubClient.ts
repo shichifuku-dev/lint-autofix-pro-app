@@ -1,25 +1,35 @@
-export type OctokitLike = {
-  checks: {
-    listForRef: (params: {
-      owner: string;
-      repo: string;
-      ref: string;
-      per_page?: number;
-    }) => Promise<{ data: { check_runs?: Array<{ name?: string; id?: number }> } }>;
-    create: (params: Record<string, unknown>) => Promise<{ data: { id: number } }>;
-    update: (params: Record<string, unknown>) => Promise<void>;
-  };
-  rest: {
-    repos: {
-      createCommitStatus: (params: Record<string, unknown>) => Promise<void>;
-      getContent: (params: Record<string, unknown>) => Promise<{ data: unknown }>;
-    };
-    pulls: {
-      listFiles: (params: Record<string, unknown>) => Promise<{ data: Array<{ filename: string }> }>;
-    };
-  };
-  actions: {
-    createWorkflowDispatch: (params: Record<string, unknown>) => Promise<void>;
-  };
-  paginate: <T>(method: (params: Record<string, unknown>) => Promise<{ data: T[] }>, params: Record<string, unknown>) => Promise<T[]>;
+import type { Octokit } from "@octokit/rest";
+import { createGitHubClient, type OctokitLike } from "../../shared/githubClient.js";
+
+const requestJson = (octokit: Octokit) => async ({
+  method,
+  path,
+  body
+}: {
+  method: string;
+  path: string;
+  body?: Record<string, unknown>;
+}): Promise<unknown> => {
+  const response = await octokit.request({
+    method,
+    url: path,
+    ...(body ?? {})
+  });
+  return response.data;
 };
+
+const requestJsonNoBody = (octokit: Octokit) => async ({ path }: { path: string }): Promise<unknown> => {
+  const response = await octokit.request({
+    method: "GET",
+    url: path
+  });
+  return response.data;
+};
+
+export const createOctokitClient = (octokit: Octokit): OctokitLike =>
+  createGitHubClient({
+    requestJson: requestJson(octokit),
+    requestJsonNoBody: requestJsonNoBody(octokit)
+  });
+
+export type { OctokitLike };

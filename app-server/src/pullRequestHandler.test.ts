@@ -1,4 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
+import type { OctokitLike } from "../../shared/githubClient.js";
 import { createPullRequestHandler } from "./pullRequestHandler.js";
 
 const buildPayload = () => ({
@@ -17,11 +18,26 @@ const buildPayload = () => ({
   }
 });
 
-const buildOctokit = () => ({
+const buildOctokit = (): OctokitLike => ({
+  checks: {
+    listForRef: vi.fn(),
+    create: vi.fn(),
+    update: vi.fn()
+  },
+  rest: {
+    repos: {
+      createCommitStatus: vi.fn(),
+      getContent: vi.fn()
+    },
+    pulls: {
+      listFiles: vi.fn()
+    }
+  },
   actions: {
-    createWorkflowDispatch: vi.fn().mockResolvedValue({})
-  }
-}) as any;
+    createWorkflowDispatch: vi.fn().mockResolvedValue(undefined)
+  },
+  paginate: vi.fn(async () => [])
+});
 
 describe("pull request handler dispatch flow", () => {
   it("skips when no supported files are changed", async () => {

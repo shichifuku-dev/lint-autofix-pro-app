@@ -1,4 +1,4 @@
-import type { OctokitLike } from "../../app-server/src/githubClient.js";
+import type { OctokitLike } from "../../shared/githubClient.js";
 
 const SUPPORTED_EXTENSIONS = new Set([".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".yml", ".css", ".md"]);
 const README_REGEX = /^readme(\.|$)/i;
@@ -30,8 +30,14 @@ const PRETTIER_CONFIG_FILES = [
   "prettier.config.ts"
 ];
 
-const isNotFoundError = (error: unknown): boolean =>
-  !!error && typeof error === "object" && "status" in error && (error as { status: number }).status === 404;
+const isRecord = (value: unknown): value is Record<string, unknown> => !!value && typeof value === "object";
+
+const isNotFoundError = (error: unknown): boolean => {
+  if (!isRecord(error) || !("status" in error)) {
+    return false;
+  }
+  return error.status === 404;
+};
 
 const decodeBase64 = (value: string): string => {
   const normalized = value.replace(/\n/g, "");
@@ -62,7 +68,7 @@ const getFileContent = async ({
       return null;
     }
     if (response.data && typeof response.data === "object" && "content" in response.data) {
-      const content = (response.data as { content?: string }).content;
+      const content = isRecord(response.data) ? response.data.content : undefined;
       if (typeof content === "string") {
         return decodeBase64(content);
       }
@@ -165,16 +171,19 @@ export const detectRepoTooling = async ({
 
   if (packageJsonRaw) {
     try {
-      const packageJson = JSON.parse(packageJsonRaw) as {
-        scripts?: Record<string, string>;
-        eslintConfig?: unknown;
-        prettier?: unknown;
-      };
-      const scriptValues = Object.values(packageJson.scripts ?? {}).join(" ").toLowerCase();
-      if (scriptValues.includes("eslint") || packageJson.eslintConfig) {
+      const parsed = JSON.parse(packageJsonRaw);
+      const packageJson = isRecord(parsed) ? parsed : null;
+      const scripts = packageJson && isRecord(packageJson.scripts) ? packageJson.scripts : null;
+      const scriptValues = scripts
+        ? Object.values(scripts)
+            .filter((value): value is string => typeof value === "string")
+            .join(" ")
+            .toLowerCase()
+        : "";
+      if (scriptValues.includes("eslint") || (packageJson && "eslintConfig" in packageJson)) {
         hasEslintConfig = true;
       }
-      if (scriptValues.includes("prettier") || packageJson.prettier) {
+      if (scriptValues.includes("prettier") || (packageJson && "prettier" in packageJson)) {
         hasPrettierConfig = true;
       }
     } catch (error) {

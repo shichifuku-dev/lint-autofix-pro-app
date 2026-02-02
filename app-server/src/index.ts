@@ -5,27 +5,36 @@ import { prisma } from "./db.js";
 import { Octokit } from "@octokit/rest";
 import { createCheckReporter } from "./checkReporter.js";
 import { ensureCheckRuns, updateCheckRun } from "./checks.js";
+import { createOctokitClient } from "./githubClient.js";
 import { getRunnerConfig } from "./runnerConfig.js";
 import { createPullRequestHandler } from "./pullRequestHandler.js";
 import { dispatchRunnerWorkflow } from "./runnerDispatch.js";
 import { detectRepoTooling, isSupportedFile, listPullRequestFiles } from "./repoInspector.js";
 import { getPlan, planPolicy } from "./plan.js";
 import { reportStatus } from "./status.js";
-import { handleInstallationEvent, handleWebhookEvent, verifyWebhookSignature } from "./webhookCore.js";
+import { handleInstallationEvent, handleWebhookEvent } from "./webhookCore.js";
+import { verifyWebhookSignature } from "./webhookSignature.js";
 
-const requiredEnv = ["APP_ID", "PRIVATE_KEY", "WEBHOOK_SECRET"] as const;
+const requiredEnv = ["GITHUB_APP_ID", "GITHUB_APP_PRIVATE_KEY", "WEBHOOK_SECRET"] as const;
 for (const key of requiredEnv) {
   if (!process.env[key]) {
     throw new Error(`Missing required env var: ${key}`);
   }
 }
 
-const privateKey = process.env.PRIVATE_KEY?.replace(/\\n/g, "\n") ?? "";
+const privateKey = process.env.GITHUB_APP_PRIVATE_KEY?.replace(/\\n/g, "\n") ?? "";
 
 const app = new App({
-  appId: Number(process.env.APP_ID),
+  appId: Number(process.env.GITHUB_APP_ID),
   privateKey
 });
+
+const extractInstallationToken = (data: unknown): string => {
+  if (!data || typeof data !== "object" || !("token" in data) || typeof data.token !== "string") {
+    throw new Error("Missing installation access token");
+  }
+  return data.token;
+};
 
 const pullRequestHandler = createPullRequestHandler({
   getInstallationToken: async (installationId) => {
@@ -33,9 +42,9 @@ const pullRequestHandler = createPullRequestHandler({
     const tokenResponse = await appOctokit.request("POST /app/installations/{installation_id}/access_tokens", {
       installation_id: installationId
     });
-    return tokenResponse.data.token as string;
+    return extractInstallationToken(tokenResponse.data);
   },
-  createOctokit: (token) => new Octokit({ auth: token }),
+  createOctokit: (token) => createOctokitClient(new Octokit({ auth: token })),
   createCheckReporter,
   listPullRequestFiles,
   detectRepoTooling,
@@ -128,18 +137,21 @@ server.get("/admin", async (req, res) => {
 });
 
 server.post("/webhooks", express.raw({ type: "application/json" }), async (req, res) => {
-  const id = req.headers["x-github-delivery"] as string | undefined;
-  const name = req.headers["x-github-event"] as string | undefined;
-  const signature = req.headers["x-hub-signature-256"] as string | undefined;
+  const idHeader = req.headers["x-github-delivery"];
+  const nameHeader = req.headers["x-github-event"];
+  const signatureHeader = req.headers["x-hub-signature-256"];
+  const id = typeof idHeader === "string" ? idHeader : undefined;
+  const name = typeof nameHeader === "string" ? nameHeader : undefined;
+  const signature = typeof signatureHeader === "string" ? signatureHeader : undefined;
 
   if (!id || !name || !signature) {
     res.status(400).send("Missing webhook headers");
     return;
   }
 
-  const payloadBuffer = req.body as Buffer;
+  const payloadBuffer = Buffer.isBuffer(req.body) ? req.body : Buffer.from(String(req.body ?? ""));
   const payloadText = payloadBuffer.toString("utf8");
-  const verified = await verifyWebhookSignature({
+  const verified = verifyWebhookSignature({
     payload: payloadBuffer,
     signatureHeader: signature,
     secret: process.env.WEBHOOK_SECRET ?? ""
@@ -182,87 +194,86 @@ server.post("/callbacks/runner", express.json({ type: "application/json" }), asy
     return;
   }
 
-  const payload = req.body as {
-    owner?: string;
-    repo?: string;
-    headSha?: string;
-    installationId?: number;
-    checkConclusion?: "success" | "failure";
-    autofixConclusion?: "success" | "failure";
-    summary?: string;
-    detailsUrl?: string;
-  };
+  const payload = typeof req.body === "object" && req.body !== null ? req.body : null;
+  const owner = payload && "owner" in payload && typeof payload.owner === "string" ? payload.owner : null;
+  const repo = payload && "repo" in payload && typeof payload.repo === "string" ? payload.repo : null;
+  const headSha = payload && "headSha" in payload && typeof payload.headSha === "string" ? payload.headSha : null;
+  const installationId =
+    payload && "installationId" in payload && typeof payload.installationId === "number" ? payload.installationId : null;
+  const summary = payload && "summary" in payload && typeof payload.summary === "string" ? payload.summary : null;
+  const checkConclusion =
+    payload && "checkConclusion" in payload && payload.checkConclusion === "failure" ? "failure" : "success";
+  const autofixConclusion =
+    payload && "autofixConclusion" in payload && payload.autofixConclusion === "failure" ? "failure" : "success";
+  const detailsUrl = payload && "detailsUrl" in payload && typeof payload.detailsUrl === "string" ? payload.detailsUrl : undefined;
 
-  if (!payload.owner || !payload.repo || !payload.headSha || !payload.installationId || !payload.summary) {
+  if (!owner || !repo || !headSha || !installationId || !summary) {
     res.status(400).send("Missing callback payload fields");
     return;
   }
 
-  const checkConclusion = payload.checkConclusion ?? "success";
-  const autofixConclusion = payload.autofixConclusion ?? "success";
-
   try {
-    const appOctokit = await app.getInstallationOctokit(payload.installationId);
+    const appOctokit = await app.getInstallationOctokit(installationId);
     const tokenResponse = await appOctokit.request("POST /app/installations/{installation_id}/access_tokens", {
-      installation_id: payload.installationId
+      installation_id: installationId
     });
-    const token = tokenResponse.data.token as string;
-    const octokit = new Octokit({ auth: token });
+    const token = extractInstallationToken(tokenResponse.data);
+    const octokit = createOctokitClient(new Octokit({ auth: token }));
 
     try {
       const checkRunIds = await ensureCheckRuns({
         octokit,
-        owner: payload.owner,
-        repo: payload.repo,
-        headSha: payload.headSha
+        owner,
+        repo,
+        headSha
       });
 
       await updateCheckRun({
         octokit,
-        owner: payload.owner,
-        repo: payload.repo,
-        headSha: payload.headSha,
+        owner,
+        repo,
+        headSha,
         checkRunId: checkRunIds["CI/check"],
         name: "CI/check",
         status: "completed",
         conclusion: checkConclusion,
-        summary: payload.summary,
-        text: payload.detailsUrl ? `Details: ${payload.detailsUrl}` : undefined
+        summary,
+        text: detailsUrl ? `Details: ${detailsUrl}` : undefined
       });
 
       await updateCheckRun({
         octokit,
-        owner: payload.owner,
-        repo: payload.repo,
-        headSha: payload.headSha,
+        owner,
+        repo,
+        headSha,
         checkRunId: checkRunIds["CI/autofix"],
         name: "CI/autofix",
         status: "completed",
         conclusion: autofixConclusion,
-        summary: payload.summary,
-        text: payload.detailsUrl ? `Details: ${payload.detailsUrl}` : undefined
+        summary,
+        text: detailsUrl ? `Details: ${detailsUrl}` : undefined
       });
     } catch (error) {
       console.error("Check run update failed; falling back to commit statuses.", error);
       await reportStatus({
         octokit,
-        owner: payload.owner,
-        repo: payload.repo,
-        sha: payload.headSha,
+        owner,
+        repo,
+        sha: headSha,
         context: "CI/check",
         state: checkConclusion === "failure" ? "failure" : "success",
-        description: payload.summary,
-        targetUrl: payload.detailsUrl
+        description: summary,
+        targetUrl: detailsUrl
       });
       await reportStatus({
         octokit,
-        owner: payload.owner,
-        repo: payload.repo,
-        sha: payload.headSha,
+        owner,
+        repo,
+        sha: headSha,
         context: "CI/autofix",
         state: autofixConclusion === "failure" ? "failure" : "success",
-        description: payload.summary,
-        targetUrl: payload.detailsUrl
+        description: summary,
+        targetUrl: detailsUrl
       });
     }
 
