@@ -1,0 +1,7 @@
+name = "lint-autofix-pro-app"
+main = "src/worker.ts"
+compatibility_date = "2026-02-03"
+
+kv_namespaces = [
+  { binding = "KV", id = "4bae0e13a76e4c7bb576cb7e68db6582" }
+]
