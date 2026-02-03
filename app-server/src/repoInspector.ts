@@ -1,4 +1,3 @@
-import path from "node:path";
 import type { Octokit } from "@octokit/rest";
 
 const SUPPORTED_EXTENSIONS = new Set([".js", ".ts", ".tsx", ".jsx", ".json", ".yaml", ".yml", ".css", ".md"]);
@@ -34,6 +33,23 @@ const PRETTIER_CONFIG_FILES = [
 const isNotFoundError = (error: unknown): boolean =>
   !!error && typeof error === "object" && "status" in error && (error as { status: number }).status === 404;
 
+const getBasename = (filename: string): string => filename.split("/").pop() ?? filename;
+
+const getExtension = (filename: string): string => {
+  const index = filename.lastIndexOf(".");
+  if (index <= 0) {
+    return "";
+  }
+  return filename.slice(index).toLowerCase();
+};
+
+const decodeBase64ToText = (input: string): string => {
+  const normalized = input.replace(/\n/g, "");
+  const binary = atob(normalized);
+  const bytes = Uint8Array.from(binary, (char) => char.charCodeAt(0));
+  return new TextDecoder().decode(bytes);
+};
+
 const getFileContent = async ({
   octokit,
   owner,
@@ -58,7 +74,7 @@ const getFileContent = async ({
       return null;
     }
     if ("content" in response.data && typeof response.data.content === "string") {
-      return Buffer.from(response.data.content, "base64").toString("utf8");
+      return decodeBase64ToText(response.data.content);
     }
     return null;
   } catch (error) {
@@ -81,11 +97,11 @@ const fileExists = async (params: {
 };
 
 export const isSupportedFile = (filename: string): boolean => {
-  const base = path.basename(filename);
+  const base = getBasename(filename);
   if (README_REGEX.test(base)) {
     return false;
   }
-  const ext = path.extname(base).toLowerCase();
+  const ext = getExtension(base);
   return SUPPORTED_EXTENSIONS.has(ext);
 };
 
