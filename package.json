@@ -1,0 +1,6 @@
+{
+  "name": "lint-autofix-pro-root",
+  "private": true,
+  "type": "module",
+  "workspaces": ["app-server"]
+}
