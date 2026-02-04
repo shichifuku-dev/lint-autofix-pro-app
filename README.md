@@ -10,6 +10,18 @@ and **always reports required CI checks** to prevent blocked merges.
 Lint Autofix Pro is a GitHub App designed to keep pull requests clean, consistent, and mergeable  
 without manual formatting work or fragile CI setups.
 
+A GitHub App that runs **ESLint autofix** and **Prettier** on **pull requests** and reports results as GitHub Checks.
+
+## Quick start (1 minute)
+
+1. Install the app from GitHub Marketplace:
+   https://github.com/marketplace/lint-autofix-pro
+2. Select the repository (or all repositories).
+3. Open or update a pull request that changes a `.js/.jsx/.ts/.tsx` file.
+4. Check the PR for two check runs:
+   - `CI/check`
+   - `CI/autofix`
+
 ---
 
 ## What It Does
