@@ -1,5 +1,8 @@
 # Lint Autofix Pro
 
+**ESLint + Prettier autofix for pull requests.**
+Fixes what’s safely fixable and **always reports required CI checks** so PRs never get stuck (`CI/check`, `CI/autofix`).
+
 🛠 **Lint Autofix Pro**  
 Automatically fixes ESLint / Prettier issues in pull requests  
 👉 https://github.com/marketplace/lint-autofix-pro
@@ -86,6 +89,10 @@ Required contexts reported:
 
 Even when no fixes are applied, these checks are reported as **success**  
 to avoid blocking merges due to missing or pending CI statuses.
+
+### Why this matters
+Some repos get blocked when required status checks are missing or left pending.
+Lint Autofix Pro **always completes** the required check contexts (`CI/check`, `CI/autofix`), even when it skips safely.
 
 Typical outcomes:
 
